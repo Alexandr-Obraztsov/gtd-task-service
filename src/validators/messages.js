@@ -1,0 +1,25 @@
+const RUSSIAN_MESSAGES = Object.freeze({
+  'any.required': '{{#label}} обязательно',
+  'any.only': '{{#label}} должно быть одним из: {{#valids}}',
+  'any.unknown': '{{#label}} не допускается',
+  'object.unknown': 'Поле {{#label}} не допускается',
+  'object.base': '{{#label}} должно быть объектом',
+  'object.min': 'Нужно передать хотя бы одно поле',
+  'string.base': '{{#label}} должно быть строкой',
+  'string.empty': '{{#label}} не может быть пустым',
+  'string.min': '{{#label}} должно содержать не менее {{#limit}} символов',
+  'string.max': '{{#label}} должно содержать не более {{#limit}} символов',
+  'string.email': '{{#label}} должно быть корректным email',
+  'string.pattern.name': '{{#label}} должно содержать {{#name}}',
+  'string.pattern.base': '{{#label}} имеет недопустимый формат',
+  'number.base': '{{#label}} должно быть числом',
+  'number.integer': '{{#label}} должно быть целым числом',
+  'number.min': '{{#label}} должно быть не меньше {{#limit}}',
+  'number.max': '{{#label}} должно быть не больше {{#limit}}',
+  'number.positive': '{{#label}} должно быть положительным числом',
+  'number.unsafe': '{{#label}} вне допустимого диапазона',
+  'date.base': '{{#label}} должно быть датой',
+  'date.format': '{{#label}} должно быть датой в формате ISO 8601',
+});
+
+module.exports = { RUSSIAN_MESSAGES };
