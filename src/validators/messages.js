@@ -18,6 +18,7 @@ const RUSSIAN_MESSAGES = Object.freeze({
   'number.max': '{{#label}} должно быть не больше {{#limit}}',
   'number.positive': '{{#label}} должно быть положительным числом',
   'number.unsafe': '{{#label}} вне допустимого диапазона',
+  'boolean.base': '{{#label}} должно быть true или false',
   'date.base': '{{#label}} должно быть датой',
   'date.format': '{{#label}} должно быть датой в формате ISO 8601',
 });

@@ -15,7 +15,13 @@ const PRIVILEGED_ROLE_BY_ACTION = Object.freeze({
 });
 
 function reportForeignAccess(actor, details) {
-  reportSuspicious(SECURITY_EVENTS.FOREIGN_RESOURCE_ACCESS, { userId: actor.id, ip: actor.ip, ...details });
+  reportSuspicious(SECURITY_EVENTS.FOREIGN_RESOURCE_ACCESS, {
+    userId: actor.id,
+    role: actor.role,
+    ip: actor.ip,
+    ...actor.request,
+    ...details,
+  });
 }
 
 function isPrivileged(actor, action) {

@@ -1,5 +1,9 @@
 const contextService = require('../services/context.service');
 
+async function listPublic(req, res) {
+  res.status(200).json(await contextService.listPublicContexts(req.validated.query));
+}
+
 async function list(req, res) {
   res.status(200).json(await contextService.listContexts(req.actor, req.validated.query));
 }
@@ -22,4 +26,4 @@ async function remove(req, res) {
   res.status(204).send();
 }
 
-module.exports = { list, getOne, create, update, remove };
+module.exports = { listPublic, list, getOne, create, update, remove };

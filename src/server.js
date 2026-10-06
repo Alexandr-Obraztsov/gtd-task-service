@@ -1,13 +1,12 @@
 const config = require('./config/env');
 const createApp = require('./app');
-const { sequelize } = require('./models');
+const { sequelize, syncDatabase } = require('./models');
 const { logger } = require('./utils/logger');
 
 const SHUTDOWN_SIGNALS = Object.freeze(['SIGINT', 'SIGTERM']);
 
 async function connectDatabase() {
-  await sequelize.authenticate();
-  await sequelize.sync();
+  await syncDatabase();
   logger.info('database_connected');
 }
 

@@ -37,7 +37,13 @@ async function authenticate(req, res, next) {
     reportSuspiciousRequest(SECURITY_EVENTS.INVALID_TOKEN, req, { reason: 'user_not_found', sub: payload.sub });
     throw new UnauthorizedError('Пользователь не найден', 'TOKEN_INVALID');
   }
-  req.actor = { id: user.id, email: user.email, role: user.role, ip: req.ip };
+  req.actor = {
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    ip: req.ip,
+    request: { method: req.method, path: req.originalUrl, userAgent: req.get('user-agent') },
+  };
   next();
 }
 

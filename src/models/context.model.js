@@ -8,12 +8,13 @@ function initContextModel(sequelize) {
       id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
       name: { type: DataTypes.STRING(50), allowNull: false },
       ownerId: { type: DataTypes.INTEGER, allowNull: false },
+      isPublic: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
     },
     {
       sequelize,
       modelName: 'Context',
       tableName: 'contexts',
-      indexes: [{ unique: true, fields: ['ownerId', 'name'] }],
+      indexes: [{ unique: true, fields: ['ownerId', 'name'] }, { fields: ['isPublic'] }],
     },
   );
   return Context;

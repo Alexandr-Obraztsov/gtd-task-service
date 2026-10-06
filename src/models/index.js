@@ -1,3 +1,4 @@
+const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database');
 const { User, initUserModel } = require('./user.model');
 const { RefreshToken, initRefreshTokenModel } = require('./refreshToken.model');
@@ -23,4 +24,27 @@ Task.belongsTo(User, { foreignKey: 'ownerId', as: 'owner' });
 Context.hasMany(Task, { foreignKey: 'contextId', as: 'tasks', onDelete: 'SET NULL' });
 Task.belongsTo(Context, { foreignKey: 'contextId', as: 'context' });
 
-module.exports = { sequelize, User, RefreshToken, Context, Task };
+const ADDED_COLUMNS = Object.freeze([
+  { table: 'contexts', column: 'isPublic', definition: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false } },
+]);
+
+async function ensureAddedColumns() {
+  const queryInterface = sequelize.getQueryInterface();
+  for (const { table, column, definition } of ADDED_COLUMNS) {
+    if (!(await queryInterface.tableExists(table))) {
+      continue;
+    }
+    const description = await queryInterface.describeTable(table);
+    if (!description[column]) {
+      await queryInterface.addColumn(table, column, definition);
+    }
+  }
+}
+
+async function syncDatabase() {
+  await sequelize.authenticate();
+  await ensureAddedColumns();
+  await sequelize.sync();
+}
+
+module.exports = { sequelize, syncDatabase, User, RefreshToken, Context, Task };

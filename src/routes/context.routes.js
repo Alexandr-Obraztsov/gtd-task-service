@@ -6,6 +6,8 @@ const authenticate = require('../middleware/authenticate');
 
 const router = Router();
 
+router.get('/public', validate(schemas.listPublic), controller.listPublic);
+
 router.use(authenticate);
 
 router.get('/', validate(schemas.list), controller.list);

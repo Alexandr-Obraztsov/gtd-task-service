@@ -15,6 +15,7 @@ Backend сервиса планирования задач по методу GTD
 | Валидация | Joi — для `params`, `query` и `body` каждого маршрута |
 | Защита | helmet, cors, express-rate-limit, sanitize-html |
 | Журналирование | winston + winston-daily-rotate-file |
+| Документация | API.md, OpenAPI 3 (`docs/openapi.json`) + Swagger UI на `/api-docs` |
 
 ## Структура
 
@@ -24,7 +25,7 @@ src/
   models/        User, RefreshToken, Context, Task и связи между ними
   services/      бизнес-логика: auth, token, user, context, task, accessPolicy
   controllers/   тонкие обработчики HTTP: читают req.validated, вызывают сервис
-  routes/        маршруты и цепочки middleware
+  routes/        маршруты и цепочки middleware; docs.routes.js — Swagger UI
   middleware/    authenticate, roleGuard, validate, requireJson, sanitizeBody,
                  rateLimiters, cors, requestLogger, errorHandler
   validators/    Joi-схемы и русские сообщения об ошибках
@@ -32,6 +33,7 @@ src/
   app.js         фабрика Express-приложения
   server.js      запуск: подключение к БД, sync, listen, graceful shutdown
 scripts/seed.js  создание admin/moderator/user из переменных окружения
+docs/openapi.json  спецификация OpenAPI 3.0 для Swagger UI
 postman/         коллекция Postman v2.1 со всеми сценариями
 docker-compose.yml  PostgreSQL
 ```
@@ -50,6 +52,12 @@ npm run seed                # admin, moderator, user + демо-контекст
 npm start                   # http://localhost:3000
 ```
 
+После запуска:
+
+- `GET http://localhost:3000/health` — проверка доступности;
+- `http://localhost:3000/api-docs` — Swagger UI, спецификация: `/api-docs/openapi.json`;
+- журналы — в каталоге `logs/` (`app-*`, `error-*`, `security-*`).
+
 Режим разработки с перезапуском: `npm run dev`. Остановить БД с сохранением
 данных: `docker compose down` (том `pgdata` сохраняется).
 
@@ -67,6 +75,11 @@ npm start                   # http://localhost:3000
 npx newman run postman/gtd-secure-api.postman_collection.json --env-var baseUrl=http://localhost:3000
 ```
 
+Коллекция: 102 запроса в 8 папках (служебное и Swagger, аутентификация, контексты
+и публичный каталог, задачи, пользователи и роли, блокировка, выход, rate limiting),
+184 проверки, включая 401/403/404/409/413/415/423/429 и экранирование вывода.
+Последний прогон Newman на чистом seed: 0 ошибок.
+
 Папка «07. Rate limiting» исчерпывает лимит попыток входа с текущего IP на
 `RATE_LIMIT_WINDOW_MINUTES` минут — её запускают последней или перезапускают сервер.
 
@@ -78,12 +91,18 @@ npx newman run postman/gtd-secure-api.postman_collection.json --env-var baseUrl=
 
 | Действие | user | moderator | admin |
 |---|---|---|---|
-| CRUD своих задач и контекстов | да | да | да |
+| Публичный каталог контекстов `GET /contexts/public` | без входа | без входа | без входа |
+| CRUD своих задач и контекстов, публикация своего контекста | да | да | да |
 | Чтение чужих задач и контекстов | нет (403 + запись в журнал) | да | да |
 | Изменение чужих задач и контекстов | нет | нет | нет |
 | Удаление чужих задач и контекстов | нет | нет | да |
 | `GET /users`, `GET /users/:id` | нет | да | да |
 | `PATCH /users/:id/role`, `DELETE /users/:id` | нет | нет | да |
+
+Схема повторяет пример из задания: чтение каталога публичное, создание — только
+после входа, удаление чужих данных — только администратор. Задачи остаются
+личными: публичный доступ есть лишь к контекстам, которые владелец сам отметил
+`isPublic: true`, и в каталоге не раскрывается владелец.
 
 Изменять чужие задачи не может никто: задача — личные данные владельца, а
 администратору для модерации достаточно удаления.
@@ -98,8 +117,26 @@ npx newman run postman/gtd-secure-api.postman_collection.json --env-var baseUrl=
 | helmet | Строгая CSP `default-src 'none'` (API не отдаёт HTML), `X-Frame-Options: DENY`, HSTS, `nosniff` |
 | Rate limiting | Глобально 300 запросов / 15 мин на IP; для `/auth/login`, `/auth/register`, `/auth/refresh` — 20 неуспешных запросов / 15 мин |
 | Валидация | Joi-схема на каждый источник (`params`, `query`, `body`) каждого маршрута; источник без схемы обязан быть пустым |
-| XSS | helmet + удаление HTML-тегов из всех строк тела запроса (кроме пароля); ответы только `application/json` с `nosniff` |
-| Журнал подозрительных действий | `logs/security-*.log` и консоль: неудачные входы, блокировки, недействительные токены, повторное использование refresh-токена, нехватка роли, доступ к чужим ресурсам, превышение лимитов, отклонённые CORS-источники, попытки mass assignment |
+| XSS | Вход: удаление HTML-тегов из всех строк тела запроса (кроме пароля). Выход: `json escape` — символы `<`, `>`, `&` в JSON-ответах кодируются как `\u003c`, `\u003e`, `\u0026`; ответы только `application/json` с `nosniff` и CSP `default-src 'none'` |
+| Журнал подозрительных действий | `logs/security-*.log` и консоль, JSON-строка на событие с IP, методом, путём, user-agent и id пользователя (см. таблицу ниже) |
+
+### События журнала безопасности
+
+| Событие | Когда пишется |
+|---|---|
+| `login_failed` | Неверный пароль или неизвестный email |
+| `account_locked`, `login_blocked_locked` | 5-я неудачная попытка; попытка входа в заблокированную учётную запись |
+| `foreign_resource_access` | Обращение к чужой задаче или контексту, запрос списка с чужим `ownerId` |
+| `insufficient_role` | `roleGuard` отказал: роль ниже требуемой |
+| `rate_limit_exceeded` | Массовые запросы: превышен глобальный лимит или лимит `/auth/*` |
+| `invalid_token`, `refresh_token_reuse` | Поддельный/повреждённый JWT; повторное предъявление отозванного refresh-токена |
+| `mass_assignment_attempt`, `cors_origin_rejected` | Лишние поля в теле (`role`, `ownerId`…); запрос с неразрешённого `Origin` |
+
+Пример записи:
+
+```json
+{"event":"foreign_resource_access","userId":4,"role":"user","ip":"::1","method":"GET","path":"/tasks/5","resourceType":"Task","resourceId":5,"ownerId":3,"action":"read","level":"warn","timestamp":"2026-10-06T08:16:29.329Z"}
+```
 
 ## Дополнительные меры и обоснование
 
@@ -122,13 +159,16 @@ npx newman run postman/gtd-secure-api.postman_collection.json --env-var baseUrl=
 
 ## Переменные окружения
 
-См. `.env.example`. Обязательные: `JWT_SECRET`, `JWT_REFRESH_SECRET` (≥ 32 символов,
-различные), `DATABASE_URL`. Остальные имеют значения по умолчанию.
+См. `.env.example`. Основные: `PORT` (по умолчанию 3000), `JWT_SECRET`,
+`JWT_REFRESH_SECRET` (≥ 32 символов, различные), `DATABASE_URL`
+(`postgres://user:password@host:port/db`). Остальные имеют значения по умолчанию.
+Файл `.env` в репозиторий не попадает (`.gitignore`).
 
 ## Ограничения
 
-Схема БД создаётся `sequelize.sync()` при старте, миграций нет. Счётчики
+Схема БД создаётся `sequelize.sync()` при старте, миграций нет; добавленные
+позже столбцы (`contexts.isPublic`) дописываются в существующие таблицы при старте. Счётчики
 rate limiting хранятся в памяти процесса и сбрасываются при перезапуске; для
 нескольких экземпляров нужен общий store (например, Redis).
 
-Описание эндпоинтов — в [API.md](API.md).
+Описание эндпоинтов — в [API.md](API.md) и в Swagger UI (`/api-docs`).

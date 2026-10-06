@@ -1,5 +1,5 @@
 const Joi = require('joi');
-const { sequelize, User, Context, Task } = require('../src/models');
+const { sequelize, syncDatabase, User, Context, Task } = require('../src/models');
 const { ROLES } = require('../src/utils/roles');
 const { TASK_STATUS } = require('../src/utils/taskStatus');
 const { hashPassword } = require('../src/utils/password');
@@ -17,7 +17,11 @@ const credentialsSchema = Joi.object({
   password: password.required(),
 });
 
-const DEMO_CONTEXTS = Object.freeze(['@home', '@work', '@calls']);
+const DEMO_CONTEXTS = Object.freeze([
+  { name: '@home', isPublic: false },
+  { name: '@work', isPublic: true },
+  { name: '@calls', isPublic: true },
+]);
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -46,7 +50,10 @@ async function upsertAccount(account) {
 
 async function seedDemoData(owner) {
   const contexts = await Promise.all(
-    DEMO_CONTEXTS.map((name) => Context.findOrCreate({ where: { ownerId: owner.id, name } }).then(([context]) => context)),
+    DEMO_CONTEXTS.map(async ({ name, isPublic }) => {
+      const [context] = await Context.findOrCreate({ where: { ownerId: owner.id, name }, defaults: { isPublic } });
+      return context.update({ isPublic });
+    }),
   );
   const existingTasks = await Task.count({ where: { ownerId: owner.id } });
   if (existingTasks > 0) {
@@ -61,8 +68,7 @@ async function seedDemoData(owner) {
 }
 
 async function seed() {
-  await sequelize.authenticate();
-  await sequelize.sync();
+  await syncDatabase();
   const users = [];
   for (const account of SEED_ACCOUNTS) {
     users.push(await upsertAccount(account));

@@ -29,6 +29,8 @@ function createApp() {
 
   app.set('trust proxy', config.trustProxy);
   app.set('query parser', 'simple');
+  app.set('json escape', true);
+  app.set('x-powered-by', false);
 
   app.use(requestLogger);
   app.use(helmet(API_SECURITY_HEADERS));

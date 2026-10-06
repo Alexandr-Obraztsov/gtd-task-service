@@ -8,6 +8,12 @@ const name = Joi.string()
   .pattern(/^@[\p{L}\p{N}_-]+$/u, { name: 'context' })
   .messages({ 'string.pattern.name': '{{#label}} должно начинаться с @ и содержать только буквы, цифры, _ и -' });
 
+const isPublic = Joi.boolean().strict();
+
+const listPublic = {
+  query: Joi.object({ ...pagination }),
+};
+
 const list = {
   query: Joi.object({
     ownerId: id,
@@ -20,12 +26,12 @@ const getOne = {
 };
 
 const create = {
-  body: Joi.object({ name: name.required() }),
+  body: Joi.object({ name: name.required(), isPublic }),
 };
 
 const update = {
   params: idParams,
-  body: Joi.object({ name: name.required() }),
+  body: Joi.object({ name, isPublic }).min(1),
 };
 
-module.exports = { list, getOne, create, update, remove: getOne };
+module.exports = { listPublic, list, getOne, create, update, remove: getOne };

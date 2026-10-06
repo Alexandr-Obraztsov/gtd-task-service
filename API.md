@@ -136,6 +136,19 @@ GET /users?role=user&limit=10
 ## Контексты
 
 Имя: начинается с `@`, затем буквы, цифры, `_`, `-`; длина 2–50; уникально у владельца.
+`isPublic` (boolean, по умолчанию `false`) — показывать ли контекст в публичном каталоге.
+
+### GET /contexts/public — публичный, без токена
+
+Каталог контекстов, которые владельцы отметили `isPublic: true`: готовые имена,
+которые можно взять себе. Query: `limit`, `offset`. Отдаются только `id`, `name`,
+`createdAt` — владелец не раскрывается.
+
+```json
+{ "items": [ { "id": 3, "name": "@calls", "createdAt": "…" } ], "total": 1, "limit": 20, "offset": 0 }
+```
+
+Ошибки: 400 (например, `limit=0` или неизвестный параметр), 429.
 
 ### GET /contexts — любая роль
 
@@ -145,13 +158,13 @@ Query: `ownerId`, `limit`, `offset`. `user` видит только свои; `o
 ### POST /contexts — любая роль
 
 ```json
-{ "name": "@office" }
+{ "name": "@office", "isPublic": false }
 ```
 
 `201`:
 
 ```json
-{ "id": 4, "name": "@office", "ownerId": 4, "createdAt": "…", "updatedAt": "…" }
+{ "id": 4, "name": "@office", "isPublic": false, "ownerId": 4, "createdAt": "…", "updatedAt": "…" }
 ```
 
 Ошибки: 400, 401, 409.
@@ -162,7 +175,8 @@ Query: `ownerId`, `limit`, `offset`. `user` видит только свои; `o
 
 ### PATCH /contexts/:id — владелец
 
-Тело как у POST. `200` или 400, 401, 403, 404, 409.
+Непустое подмножество `name`, `isPublic`, например `{ "isPublic": true }`.
+`200` или 400, 401, 403, 404, 409.
 
 ### DELETE /contexts/:id — владелец, admin
 
@@ -215,6 +229,8 @@ GET /tasks?status=next&contextId=4
 
 `201`: созданная задача. HTML-теги в строках удаляются:
 `"<script>alert(1)</script>Купить <b>хлеб</b>"` сохраняется как `"Купить хлеб"`.
+Оставшиеся `<`, `>`, `&` в JSON-ответе кодируются как `\u003c`, `\u003e`, `\u0026`,
+поэтому ответ безопасно вставлять в HTML-страницу.
 Ошибки: 400, 401, 404 (контекст не принадлежит пользователю), 413, 415.
 
 ### GET /tasks/:id — владелец, moderator, admin
@@ -241,4 +257,10 @@ GET /tasks?status=next&contextId=4
 
 ### GET /health — публичный
 
-`200`: `{ "status": "ok" }`.
+`200`: `{ "status": "ok" }`. Любой query-параметр — 400.
+
+### GET /api-docs — публичный
+
+Swagger UI по спецификации OpenAPI 3.0 из `docs/openapi.json`; сама спецификация —
+`GET /api-docs/openapi.json`. Для страницы документации действует отдельная CSP,
+разрешающая только собственные скрипты и стили.
