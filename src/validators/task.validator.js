@@ -5,7 +5,8 @@ const { id, idParams, pagination } = require('./common');
 const title = Joi.string().trim().min(1).max(200);
 const notes = Joi.string().trim().max(2000).allow('');
 const status = Joi.string().valid(...TASK_STATUS_VALUES);
-const isoDate = Joi.date().iso().allow(null);
+const boundedDate = Joi.date().iso().min('2000-01-01T00:00:00Z').max('2100-12-31T23:59:59Z');
+const isoDate = boundedDate.allow(null);
 const contextId = id.allow(null);
 
 const list = {
@@ -13,7 +14,7 @@ const list = {
     status,
     contextId,
     ownerId: id,
-    dueBefore: Joi.date().iso(),
+    dueBefore: boundedDate,
     ...pagination,
   }),
 };
