@@ -5,3 +5,8 @@ node_modules/
 logs/
 *.log
 .DS_Store
+
+.claude/
+~$*
+reports/**/main.log
+reports/**/main.pdf

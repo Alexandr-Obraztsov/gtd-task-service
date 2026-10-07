@@ -1,0 +1,1025 @@
+\documentclass{stp}
+
+\begin{document}
+
+\stptitle{
+  вид        = практическая,
+  номер      = 1,
+  тема       = {Разработка безопасного \textit{REST API}},
+  дисциплина = {ИТиВП},
+  студент    = {А. С. Образцов},
+  группа     = {320601},
+  преподаватель = {Н. В. Хаджинова},
+}
+
+\section{Цель работы}
+
+Целью индивидуальной практической работы является разработка
+безопасного \textit{REST API} для курсового проекта — сервиса планирования задач
+по методу \textit{GTD} (\textit{Getting Things Done}) с контекстами и напоминаниями
+(вариант~27). В работе реализуются аутентификация по \textit{JWT}, ролевая модель
+\textit{user}, \textit{moderator} и \textit{admin}, обязательные меры защиты от типовых угроз
+\textit{OWASP} (\textit{SQL}-инъекции, перебор паролей, \textit{XSS}, массовые запросы) и десять
+дополнительных мер, выбранных под особенности предметной области.
+
+Метод \textit{GTD} предполагает, что все дела человека сначала собираются во
+входящие, а затем разбираются по спискам. Поэтому основной сущностью
+сервиса является задача, которая в каждый момент находится в одном из
+шести статусов:
+
+\begin{stpdash}
+  \item \textit{inbox} — входящая, ещё не разобранная задача;
+  \item \textit{next} — следующее конкретное действие;
+  \item \textit{waiting} — задача ожидает результата от другого человека;
+  \item \textit{scheduled} — задача привязана к дате, поле \textit{dueDate} обязательно;
+  \item \textit{someday} — когда-нибудь, может быть;
+  \item \textit{done} — выполненная задача.
+\end{stpdash}
+
+Контекст описывает место или средство, в котором задачу можно
+выполнить: \textit{@home}, \textit{@work}, \textit{@calls}. Каждый пользователь ведёт собственный
+набор контекстов, а контексты, отмеченные как публичные, попадают в
+общий каталог готовых названий. Напоминание задаётся моментом \textit{remindAt}:
+маршрут \textit{/tasks/reminders/due} возвращает невыполненные задачи владельца,
+время напоминания которых уже наступило.
+
+Задачи и напоминания являются личными данными: по ним можно восстановить
+распорядок дня, круг общения и планы человека. Поэтому главное
+требование к \textit{API} — пользователь не должен ни прочитать, ни изменить
+чужие данные, а учётная запись должна быть защищена от подбора пароля и
+кражи сессии.
+
+\section{Ход работы}\label{sec:work}
+
+\subsection{Архитектура и стек технологий}
+
+Сервис написан на \textit{Node.js} с фреймворком \textit{Express}~5. Данные хранятся в
+\textit{PostgreSQL}~16, запущенной в контейнере \textit{Docker}, доступ к базе выполняется
+через \textit{ORM Sequelize}. Пароли хешируются библиотекой \textit{bcrypt}, токены
+подписываются библиотекой \textit{jsonwebtoken}, входные данные проверяются
+схемами \textit{Joi}. Для защиты используются \textit{helmet}, \textit{cors}, \textit{express-rate-limit} и
+\textit{sanitize-html}, для журналирования — \textit{winston} с модулем
+\textit{winston-daily-rotate-file}.
+
+Код разделён на слои: маршруты (\textit{routes}) описывают цепочку \textit{middleware},
+контроллеры (\textit{controllers}) читают проверенные данные запроса и вызывают
+сервисы (\textit{services}), в которых сосредоточена бизнес-логика и проверка
+прав доступа. Модели (\textit{models}) описывают таблицы и связи между ними.
+Порядок подключения глобальных \textit{middleware} задан в фабрике приложения:
+
+\begin{stplisting}
+function createApp() {
+  const app = express();
+
+  app.set('trust proxy', config.trustProxy);
+  app.set('query parser', 'simple');
+  app.set('json escape', true);
+  app.set('x-powered-by', false);
+
+  app.use(requestLogger);
+  app.use(helmet(API_SECURITY_HEADERS));
+  app.use(corsMiddleware);
+  app.use(globalLimiter);
+  app.use(requireJson);
+  app.use(express.json({ limit: config.bodyLimit,
+    strict: true }));
+  app.use(cookieParser());
+  app.use(sanitizeBody);
+
+  app.use(routes);
+  app.use(notFoundHandler);
+  app.use(errorHandler);
+  return app;
+}
+\end{stplisting}
+
+Порядок выбран так, чтобы дешёвые проверки отсекали запрос раньше
+дорогих: запрос с чужого \textit{Origin} или сверх лимита отклоняется до разбора
+тела, а тело в формате, отличном от \textit{JSON}, отклоняется до чтения из
+сокета.
+
+Исходный код размещён в репозитории
+\textit{https://github.com/\allowbreak{}Alexandr-Obraztsov/\allowbreak{}gtd-task-service}, ветка \textit{ipr21}.
+Там же находится коллекция \textit{Postman} со всеми сценариями проверки:
+\textit{https://github.com/\allowbreak{}Alexandr-Obraztsov/\allowbreak{}gtd-task-service/\allowbreak{}blob/\allowbreak{}ipr21/\allowbreak{}postman/\allowbreak{}gtd-secure-api.postman\_collection.json}.
+
+\subsection{Схема базы данных}
+
+База данных состоит из четырёх таблиц. Таблица \textit{users} хранит учётные
+записи: \textit{email}, хеш пароля, роль, счётчик неудачных входов и время
+окончания блокировки. Таблица \textit{refresh\_tokens} хранит выданные
+\textit{refresh}-токены в виде \textit{SHA-256} хеша вместе со сроком действия, временем
+отзыва и хешем токена, который его заменил. Таблицы \textit{contexts} и \textit{tasks}
+хранят контексты и задачи, у каждой записи есть владелец \textit{ownerId}.
+Схема базы данных представлена на рисунке~\ref{fig:er}.
+
+\stpimage[160mm]{img/er.png}{Схема базы данных сервиса}{fig:er}
+
+При удалении пользователя каскадно удаляются его задачи, контексты и
+\textit{refresh}-токены. При удалении контекста задачи не удаляются: поле
+\textit{contextId} у них становится пустым.
+
+\subsection{Модели и маршруты}
+
+Модель пользователя переопределяет метод \textit{toJSON} и возвращает только
+открытые поля, поэтому хеш пароля, счётчик попыток и время блокировки
+не могут попасть в ответ \textit{API} даже по ошибке в контроллере:
+
+\begin{stplisting}
+const PUBLIC_FIELDS = Object.freeze(
+  ['id', 'email', 'role', 'createdAt', 'updatedAt']);
+
+class User extends Model {
+  isLocked(now = new Date()) {
+    return Boolean(this.lockUntil && this.lockUntil > now);
+  }
+
+  toJSON() {
+    const values = this.get({ plain: true });
+    return Object.fromEntries(
+      PUBLIC_FIELDS.map((field) => [field, values[field]]));
+  }
+}
+
+User.init({
+  id: { type: DataTypes.INTEGER, autoIncrement: true,
+    primaryKey: true },
+  email: { type: DataTypes.STRING(254), allowNull: false,
+    unique: true, validate: { isEmail: true } },
+  passwordHash: { type: DataTypes.STRING(100),
+    allowNull: false },
+  role: { type: DataTypes.ENUM(...ROLE_VALUES),
+    allowNull: false, defaultValue: ROLES.USER },
+  failedAttempts: { type: DataTypes.INTEGER,
+    allowNull: false, defaultValue: 0 },
+  lockUntil: { type: DataTypes.DATE, allowNull: true },
+  lastLoginAt: { type: DataTypes.DATE, allowNull: true },
+}, { sequelize, modelName: 'User', tableName: 'users' });
+\end{stplisting}
+
+Модель задачи ограничивает статус перечислением \textit{GTD} и задаёт индексы
+для выборки по владельцу и статусу и для поиска наступивших напоминаний:
+
+\begin{stplisting}
+Task.init({
+  id: { type: DataTypes.INTEGER, autoIncrement: true,
+    primaryKey: true },
+  title: { type: DataTypes.STRING(200), allowNull: false },
+  notes: { type: DataTypes.TEXT, allowNull: false,
+    defaultValue: '' },
+  status: { type: DataTypes.ENUM(...TASK_STATUS_VALUES),
+    allowNull: false, defaultValue: TASK_STATUS.INBOX },
+  dueDate: { type: DataTypes.DATE, allowNull: true },
+  remindAt: { type: DataTypes.DATE, allowNull: true },
+  contextId: { type: DataTypes.INTEGER, allowNull: true },
+  ownerId: { type: DataTypes.INTEGER, allowNull: false },
+}, {
+  sequelize, modelName: 'Task', tableName: 'tasks',
+  indexes: [{ fields: ['ownerId', 'status'] },
+    { fields: ['remindAt'] }],
+});
+\end{stplisting}
+
+Связи между моделями объявлены в одном месте:
+
+\begin{stplisting}
+const CASCADE = { onDelete: 'CASCADE' };
+
+User.hasMany(RefreshToken, { foreignKey: 'userId',
+  as: 'refreshTokens', ...CASCADE });
+User.hasMany(Context, { foreignKey: 'ownerId',
+  as: 'contexts', ...CASCADE });
+User.hasMany(Task, { foreignKey: 'ownerId',
+  as: 'tasks', ...CASCADE });
+Context.hasMany(Task, { foreignKey: 'contextId',
+  as: 'tasks', onDelete: 'SET NULL' });
+\end{stplisting}
+
+Маршруты аутентификации (файл \textit{src/routes/auth.routes.js}) защищены
+отдельным ограничителем частоты и схемами проверки входных данных:
+
+\begin{stplisting}
+const router = Router();
+
+router.post('/register', authLimiter,
+  validate(schemas.register), controller.register);
+router.post('/login', authLimiter,
+  validate(schemas.login), controller.login);
+router.post('/refresh', authLimiter,
+  validate(schemas.refresh), controller.refresh);
+router.post('/logout', validate(schemas.logout),
+  controller.logout);
+router.get('/me', authenticate, validate(schemas.me),
+  controller.me);
+\end{stplisting}
+
+Маршруты задач требуют аутентификации для всех операций, а каждый
+маршрут имеет собственную схему проверки входных данных. Права на чужую
+задачу проверяются в сервисе, поскольку для этого нужна сама запись из
+базы данных:
+
+\begin{stplisting}
+const router = Router();
+
+router.use(authenticate);
+
+router.get('/', validate(schemas.list), controller.list);
+router.post('/', validate(schemas.create),
+  controller.create);
+router.get('/reminders/due',
+  validate(schemas.dueReminders), controller.dueReminders);
+router.get('/:id', validate(schemas.getOne),
+  controller.getOne);
+router.patch('/:id', validate(schemas.update),
+  controller.update);
+router.delete('/:id', validate(schemas.remove),
+  controller.remove);
+\end{stplisting}
+
+Маршруты управления пользователями дополнительно закрыты проверкой
+роли: просмотр доступен модератору, изменение роли и удаление — только
+администратору:
+
+\begin{stplisting}
+router.use(authenticate);
+
+router.get('/', roleGuard(ROLES.MODERATOR),
+  validate(schemas.list), controller.list);
+router.get('/:id', roleGuard(ROLES.MODERATOR),
+  validate(schemas.getOne), controller.getOne);
+router.patch('/:id/role', roleGuard(ROLES.ADMIN),
+  validate(schemas.changeRole), controller.changeRole);
+router.delete('/:id', roleGuard(ROLES.ADMIN),
+  validate(schemas.remove), controller.remove);
+\end{stplisting}
+
+Права на ресурсы, которые зависят от владельца, описаны таблицей:
+чтение чужого ресурса разрешено с роли \textit{moderator}, удаление — с роли
+\textit{admin}, изменение чужого ресурса не разрешено никому:
+
+\begin{stplisting}
+const PRIVILEGED_ROLE_BY_ACTION = Object.freeze({
+  [ACTIONS.READ]: ROLES.MODERATOR,
+  [ACTIONS.UPDATE]: null,
+  [ACTIONS.DELETE]: ROLES.ADMIN,
+});
+
+function ensureCanAccess(actor, resource, action, type) {
+  if (resource.ownerId === actor.id
+    || isPrivileged(actor, action)) {
+    return;
+  }
+  reportForeignAccess(actor, { resourceType: type,
+    resourceId: resource.id, ownerId: resource.ownerId,
+    action });
+  throw new ForbiddenError('Нет доступа к чужому ресурсу',
+    'FOREIGN_RESOURCE');
+}
+\end{stplisting}
+
+\subsection{Ключевые \textit{middleware}}
+
+\textit{Middleware authenticate} проверяет формат заголовка \textit{Authorization},
+подпись и срок действия \textit{access}-токена, а затем загружает пользователя
+из базы данных. Роль берётся из базы, а не из токена, поэтому понижение
+роли или удаление учётной записи действуют сразу, не дожидаясь истечения
+токена:
+
+\begin{stplisting}
+const BEARER_PATTERN =
+  /^Bearer ([A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+)$/;
+
+function decodeAccessToken(req, token) {
+  try {
+    return verifyAccessToken(token);
+  } catch (error) {
+    if (isTokenExpiredError(error)) {
+      throw new UnauthorizedError('Срок действия токена истёк',
+        'TOKEN_EXPIRED');
+    }
+    reportSuspiciousRequest(SECURITY_EVENTS.INVALID_TOKEN,
+      req, { reason: error.message });
+    throw new UnauthorizedError(
+      'Недействительный токен доступа', 'TOKEN_INVALID');
+  }
+}
+
+async function authenticate(req, res, next) {
+  const payload = decodeAccessToken(req,
+    extractBearerToken(req));
+  const user = await User.findByPk(Number(payload.sub));
+  if (!user) {
+    reportSuspiciousRequest(SECURITY_EVENTS.INVALID_TOKEN,
+      req, { reason: 'user_not_found', sub: payload.sub });
+    throw new UnauthorizedError('Пользователь не найден',
+      'TOKEN_INVALID');
+  }
+  req.actor = { id: user.id, email: user.email,
+    role: user.role, ip: req.ip,
+    request: { method: req.method, path: req.originalUrl,
+      userAgent: req.get('user-agent') } };
+  next();
+}
+\end{stplisting}
+
+Проверка подписи
+выполняется с явным списком алгоритмов, издателем, аудиторией и типом
+токена, поэтому \textit{refresh}-токен не может быть использован как \textit{access}-токен,
+а токен с алгоритмом \textit{none} не будет принят:
+
+\begin{stplisting}
+function verifyToken(token, secret, expectedType) {
+  const payload = jwt.verify(token, secret, {
+    algorithms: [SIGNING_ALGORITHM],
+    issuer: config.jwt.issuer,
+    audience: config.jwt.audience,
+  });
+  if (payload.type !== expectedType) {
+    throw new jwt.JsonWebTokenError('unexpected token type');
+  }
+  return payload;
+}
+\end{stplisting}
+
+\textit{Middleware roleGuard} принимает минимальную требуемую роль и сравнивает
+ранги ролей \textit{user}~(1), \textit{moderator}~(2) и \textit{admin}~(3). Отказ записывается в
+журнал безопасности:
+
+\begin{stplisting}
+const ROLE_RANK = Object.freeze({
+  [ROLES.USER]: 1, [ROLES.MODERATOR]: 2, [ROLES.ADMIN]: 3,
+});
+
+function hasRole(actualRole, requiredRole) {
+  return (ROLE_RANK[actualRole] || 0)
+    >= ROLE_RANK[requiredRole];
+}
+
+function roleGuard(requiredRole) {
+  return (req, res, next) => {
+    if (!hasRole(req.actor.role, requiredRole)) {
+      reportSuspiciousRequest(
+        SECURITY_EVENTS.INSUFFICIENT_ROLE, req,
+        { role: req.actor.role, requiredRole });
+      throw new ForbiddenError(
+        `Операция доступна только для роли ${requiredRole} и выше`,
+        'INSUFFICIENT_ROLE');
+    }
+    next();
+  };
+}
+\end{stplisting}
+
+\textit{Middleware validate} проверяет все три источника данных запроса: \textit{params},
+\textit{query} и \textit{body}. Если для источника схема не задана, он обязан быть пустым,
+поэтому лишний параметр в строке запроса тоже приводит к ошибке 400.
+Неизвестные поля тела дополнительно фиксируются как попытка \textit{mass assignment}:
+
+\begin{stplisting}
+const REQUEST_SOURCES = Object.freeze(
+  ['params', 'query', 'body']);
+
+const JOI_OPTIONS = Object.freeze({
+  abortEarly: false,
+  convert: true,
+  allowUnknown: false,
+  messages: RUSSIAN_MESSAGES,
+  errors: { wrap: { label: '"' } },
+});
+
+function validate(schemas = {}) {
+  return (req, res, next) => {
+    const validated = {};
+    const details = [];
+    for (const source of REQUEST_SOURCES) {
+      const schema = schemas[source] || emptyObject;
+      const { value, error } = schema.validate(
+        req[source] ?? {}, JOI_OPTIONS);
+      if (error) {
+        details.push(...toDetails(source, error));
+      }
+      validated[source] = value;
+    }
+    if (details.length) {
+      reportUnknownBodyFields(req, details);
+      throw new ValidationError('Некорректные данные запроса',
+        details.map(({ type, ...rest }) => rest));
+    }
+    req.validated = validated;
+    next();
+  };
+}
+\end{stplisting}
+
+Ограничение частоты запросов построено на \textit{express-rate-limit}. Глобальный
+лимитер допускает 300 запросов за 15 минут с одного \textit{IP}-адреса.
+Лимитер маршрутов \textit{/auth/login}, \textit{/auth/register} и \textit{/auth/refresh} считает
+только неуспешные запросы и допускает 20 таких запросов за то же окно,
+поэтому обычный вход не расходует лимит, а перебор пароля упирается в
+него быстро:
+
+\begin{stplisting}
+const windowMs = config.rateLimit.windowMinutes * 60 * 1000;
+
+function createLimiter({ name, limit,
+  skipSuccessfulRequests = false }) {
+  return rateLimit({
+    windowMs,
+    limit,
+    skipSuccessfulRequests,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    handler: (req, res, next) => {
+      reportSuspiciousRequest(
+        SECURITY_EVENTS.RATE_LIMIT_EXCEEDED, req,
+        { limiter: name, limit });
+      next(new TooManyRequestsError());
+    },
+  });
+}
+
+const globalLimiter = createLimiter({ name: 'global',
+  limit: config.rateLimit.globalMax });
+const authLimiter = createLimiter({ name: 'auth',
+  limit: config.rateLimit.authMax,
+  skipSuccessfulRequests: true });
+\end{stplisting}
+
+\textit{Middleware requireJson} отклоняет тело в формате, отличном от
+\textit{application/json}, ещё до его разбора:
+
+\begin{stplisting}
+const BODY_METHODS = new Set(['POST', 'PUT', 'PATCH']);
+
+function hasBody(req) {
+  return req.get('transfer-encoding') !== undefined
+    || Number(req.get('content-length')) > 0;
+}
+
+function requireJson(req, res, next) {
+  if (BODY_METHODS.has(req.method) && hasBody(req)
+    && !req.is('application/json')) {
+    throw new UnsupportedMediaTypeError();
+  }
+  next();
+}
+\end{stplisting}
+
+\subsection{Регистрация, вход и защищённые маршруты}
+
+Все запросы в этом и следующих подразделах выполнены к работающему
+серверу по адресу \textit{http://localhost:3000}, база \textit{PostgreSQL} запущена в
+\textit{Docker}. \textit{JWT} в
+снимках сокращены до первых 20 символов, пароли рабочих учётных записей
+скрыты.
+
+Регистрация принимает только \textit{email} и пароль, роль нового пользователя
+всегда \textit{user}. Регистрация представлена на рисунке~\ref{fig:register}.
+
+\stpimage[150mm]{img/register.png}{Регистрация нового пользователя}{fig:register}
+
+При входе сервер возвращает короткоживущий \textit{access}-токен в теле ответа,
+а \textit{refresh}-токен устанавливает в \textit{cookie} с флагами \textit{HttpOnly} и
+\textit{SameSite=Strict}, ограниченную путём \textit{/auth}. Вход представлен на
+рисунке~\ref{fig:login}.
+
+\stpimage[150mm]{img/login.png}{Вход и получение \textit{JWT}}{fig:login}
+
+Запрос к защищённому маршруту без заголовка \textit{Authorization} отклоняется с
+кодом 401, с действительным токеном — выполняется. Ответы приведены на
+рисунках~\ref{fig:notoken}--\ref{fig:withtoken}.
+
+\stpimage[150mm]{img/noToken.png}{Запрос к защищённому маршруту без токена}{fig:notoken}
+
+\stpimage[150mm]{img/withToken.png}{Запрос к защищённому маршруту с токеном}{fig:withtoken}
+
+Токен с изменённой подписью отклоняется с кодом \textit{TOKEN\_INVALID}, а
+событие \textit{invalid\_token} попадает в журнал безопасности. Ответ показан на
+рисунке~\ref{fig:badtoken}.
+
+\stpimage[150mm]{img/badToken.png}{Запрос с поддельным токеном}{fig:badtoken}
+
+\subsection{Ролевая модель}
+
+Пользователь с ролью \textit{user} пытается удалить учётную запись
+администратора. \textit{Middleware roleGuard} отклоняет запрос с кодом 403 ещё
+до проверки параметров, что показано на рисунке~\ref{fig:roledelete}.
+
+\stpimage[150mm]{img/roleDelete.png}{Попытка административного действия от имени роли \textit{user}}{fig:roledelete}
+
+Модератору доступен просмотр пользователей, но назначение ролей
+остаётся за администратором. Отказ модератору приведён на
+рисунке~\ref{fig:modrole}.
+
+\stpimage[150mm]{img/modRole.png}{Попытка модератора изменить роль пользователя}{fig:modrole}
+
+Пользователь не может прочитать чужую задачу даже при известном
+идентификаторе. Сервис отвечает кодом \textit{FOREIGN\_RESOURCE} и записывает
+событие \textit{foreign\_resource\_access}, ответ представлен на
+рисунке~\ref{fig:foreign}.
+
+\stpimage[150mm]{img/foreign.png}{Обращение к чужой задаче}{fig:foreign}
+
+\subsection{Проверка входных данных}
+
+Схема \textit{Joi} проверяет все поля сразу (\textit{abortEarly}: \textit{false}) и возвращает
+список нарушений с указанием источника и поля. Ответ на регистрацию с
+некорректным \textit{email} и коротким паролем представлен на
+рисунке~\ref{fig:valid}.
+
+Даты задач ограничены диапазоном, который заведомо поддерживают и
+\textit{JavaScript}, и \textit{PostgreSQL}. Поэтому дата с годом −10000 не доходит
+до базы данных, а отклоняется с кодом 400:
+
+\begin{stplisting}
+const boundedDate = Joi.date().iso()
+  .min('2000-01-01T00:00:00Z')
+  .max('2100-12-31T23:59:59Z');
+const isoDate = boundedDate.allow(null);
+\end{stplisting}
+
+\stpimage[140mm]{img/valid.png}{Ошибки валидации при регистрации}{fig:valid}
+
+\subsection{Дополнительная мера 3: сложность пароля}
+
+Пароль должен содержать от 8 до 72 символов, хотя бы одну букву, цифру
+и спецсимвол. Верхняя граница 72 символа — предел \textit{bcrypt}: всё, что
+длиннее, алгоритм молча отбрасывает. Правило описано в общей схеме:
+
+\begin{stplisting}
+const password = Joi.string()
+  .min(8)
+  .max(72)
+  .pattern(/\p{L}/u, 'хотя бы одну букву')
+  .pattern(/\d/, 'хотя бы одну цифру')
+  .pattern(/[^\p{L}\d\s]/u, 'хотя бы один спецсимвол');
+\end{stplisting}
+
+Ответ на пароль из одних букв показан на рисунке~\ref{fig:complexity}.
+
+\stpimage[150mm]{img/complexity.png}{Отказ в регистрации со слабым паролем}{fig:complexity}
+
+\subsection{Дополнительная мера 5: \textit{refresh}-токен в \textit{httpOnly cookie}}
+
+\textit{Access}-токен живёт 15 минут. \textit{Refresh}-токен живёт 7 дней, хранится в
+\textit{cookie}, недоступной \textit{JavaScript}, а в базе данных лежит только его
+\textit{SHA-256} хеш. Каждый вызов \textit{/auth/refresh} отзывает предъявленный токен и
+выдаёт новую пару, что представлено на рисунке~\ref{fig:refresh}.
+
+\stpimage[150mm]{img/refresh.png}{Обновление пары токенов с ротацией}{fig:refresh}
+
+Если отозванный токен предъявляют повторно, значит, его копия оказалась
+у кого-то ещё. Сервис отклоняет запрос, отзывает все сессии пользователя
+и записывает событие \textit{refresh\_token\_reuse}. Ответ приведён на
+рисунке~\ref{fig:reuse}.
+
+\stpimage[150mm]{img/reuse.png}{Повторное предъявление отозванного \textit{refresh}-токена}{fig:reuse}
+
+Ротация выполняется в транзакции с блокировкой строки, поэтому два
+одновременных запроса с одним токеном не получат две действующие пары:
+
+\begin{stplisting}
+const outcome = await sequelize.transaction(async (tx) => {
+  const storedToken = await RefreshToken.findOne({
+    where: { tokenHash }, transaction: tx,
+    lock: tx.LOCK.UPDATE });
+  if (!storedToken
+    || String(storedToken.userId) !== payload.sub) {
+    return { error: invalidRefreshToken() };
+  }
+  if (!storedToken.isActive()) {
+    return { reusedToken: storedToken };
+  }
+  const user = await User.findByPk(storedToken.userId,
+    { transaction: tx });
+  const pair = await issueTokenPair(user, ip, tx);
+  await storedToken.update({ revokedAt: new Date(),
+    replacedByHash: hashToken(pair.refreshToken) },
+    { transaction: tx });
+  return { user, pair };
+});
+\end{stplisting}
+
+Выход отзывает \textit{refresh}-токен и очищает \textit{cookie}, после чего обновить сессию
+этим токеном нельзя. Ответы представлены на
+рисунках~\ref{fig:logout}--\ref{fig:afterlogout}.
+
+\stpimage[150mm]{img/logout.png}{Выход из системы}{fig:logout}
+
+\stpimage[150mm]{img/afterLogout.png}{Попытка обновить сессию после выхода}{fig:afterlogout}
+
+\subsection{Дополнительная мера 6: блокировка после пяти неудачных входов}
+
+В таблице \textit{users} хранятся счётчик \textit{failedAttempts} и момент \textit{lockUntil}.
+Пятая неудачная попытка закрывает вход на 15 минут. Пока блокировка
+действует, пароль не проверяется вовсе, поэтому даже верный пароль
+получает ответ 423, содержащий заголовок \textit{Retry-After}. Проверка выполнена на
+свежезарегистрированной учётной записи: пять попыток с неверным паролем
+вернули 401, шестая с верным паролем — 423, как показано на
+рисунке~\ref{fig:locked}.
+
+\stpimage[150mm]{img/locked.png}{Вход в заблокированную учётную запись}{fig:locked}
+
+Блокировка учётной записи защищает от подбора пароля к конкретному
+пользователю, а лимит запросов к \textit{/auth/*} — от перебора с одного адреса
+по многим учётным записям. После 20 неуспешных запросов за 15 минут
+сервер отвечает 429, ответ приведён на рисунке~\ref{fig:rate}.
+
+\stpimage[150mm]{img/rate.png}{Превышение лимита неуспешных запросов аутентификации}{fig:rate}
+
+\subsection{Дополнительная мера 9: защита от \textit{mass assignment}}
+
+Схемы \textit{Joi} не допускают неизвестных полей, поэтому поле \textit{role} при
+регистрации и поле \textit{ownerId} при создании задачи отклоняются с кодом 400.
+Ответы представлены на рисунках~\ref{fig:massreg}--\ref{fig:masstask}.
+
+\stpimage[150mm]{img/massReg.png}{Попытка задать роль при регистрации}{fig:massreg}
+
+\stpimage[150mm]{img/massTask.png}{Попытка создать задачу от имени другого владельца}{fig:masstask}
+
+Вторая линия защиты находится в сервисах: они копируют из входных данных
+только поля белого списка, а владельца берут из токена:
+
+\begin{stplisting}
+const WRITABLE_FIELDS = Object.freeze(['title', 'notes',
+  'status', 'dueDate', 'remindAt', 'contextId']);
+
+async function createTask(actor, input) {
+  const attributes = { ...pickDefined(input, WRITABLE_FIELDS),
+    ownerId: actor.id };
+  ensureScheduledHasDueDate(attributes);
+  await ensureContextOwnedBy(actor.id, attributes.contextId);
+  return Task.create(attributes,
+    { fields: [...WRITABLE_FIELDS, 'ownerId'] });
+}
+\end{stplisting}
+
+\subsection{Дополнительные меры 12 и 15: размер и тип тела запроса}
+
+Тело запроса ограничено 10~КБ: заметки задачи не длиннее 2000 символов,
+и больший объём нужен только для попытки исчерпать память сервера.
+Ответ на тело размером около 12~КБ показан на рисунке~\ref{fig:size}.
+
+\stpimage[150mm]{img/size.png}{Тело запроса больше 10 КБ}{fig:size}
+
+Тело запроса принимается только в формате \textit{application/json}. Это
+закрывает отправку данных из \textit{HTML}-формы с другого сайта, которая
+возможна лишь с типами \textit{text/plain}, \textit{application/x-www-form-urlencoded} и
+\textit{multipart/form-data}. Ответ на тело \textit{text/plain} приведён на
+рисунке~\ref{fig:ctype}.
+
+\stpimage[150mm]{img/ctype.png}{Тело запроса в формате \textit{text/plain}}{fig:ctype}
+
+\subsection{Заголовки безопасности}
+
+\textit{Helmet} добавляет к каждому ответу \textit{API} строгую политику \textit{CSP default-src 'none'}, запрет встраивания во фрейм, \textit{HSTS} и запрет
+угадывания типа содержимого. \textit{API} отдаёт только \textit{JSON}, поэтому политика не
+разрешает загрузку никаких ресурсов. Заголовки ответа представлены на
+рисунке~\ref{fig:health}.
+
+\stpimage[150mm]{img/health.png}{Заголовки безопасности в ответе \textit{API}}{fig:health}
+
+\subsection{Дополнительная мера 19: санитизация \textit{HTML}}
+
+Все строки тела запроса, кроме пароля, проходят через \textit{sanitize-html} без
+разрешённых тегов. Тег \textit{script} удаляется вместе с содержимым, остальные
+теги вырезаются, текст сохраняется. Результат представлен на
+рисунке~\ref{fig:sanitize}.
+
+\stpimage[150mm]{img/sanitize.png}{Санитизация \textit{HTML} в полях задачи}{fig:sanitize}
+
+\subsection{Дополнительная мера 22: \textit{CORS} по белому списку}
+
+Разрешённые источники перечислены в переменной окружения \textit{CORS\_ORIGINS}.
+Запрос с чужого \textit{Origin} получает 403 и записывается в журнал, запрос с
+разрешённого источника получает заголовки \textit{Access-Control-Allow-Origin} и
+\textit{Access-Control-Allow-Credentials}. Ответы приведены на
+рисунках~\ref{fig:corsbad}--\ref{fig:corsok}.
+
+\stpimage[150mm]{img/corsBad.png}{Запрос с неразрешённого источника}{fig:corsbad}
+
+\stpimage[150mm]{img/corsOk.png}{Запрос с разрешённого источника}{fig:corsok}
+
+\subsection{Дополнительная мера 24: ошибки без деталей}
+
+Ответ на ошибку входа не раскрывает, существует ли учётная запись:
+неизвестный \textit{email} и неверный пароль дают одинаковый код и текст. Для
+неизвестного \textit{email} сервер всё равно выполняет сравнение \textit{bcrypt} с
+фиктивным хешем, чтобы время ответа тоже не отличалось. Ответы показаны
+на рисунках~\ref{fig:genunknown}--\ref{fig:genwrong}.
+
+\stpimage[150mm]{img/genUnknown.png}{Вход с несуществующим \textit{email}}{fig:genunknown}
+
+\stpimage[150mm]{img/genWrong.png}{Вход с неверным паролем существующего пользователя}{fig:genwrong}
+
+Непредвиденная ошибка в режиме \textit{development} возвращает блок \textit{debug} с
+именем, сообщением и стеком, а в режиме \textit{production} — только общий текст.
+Для демонстрации рядом с основным сервером запущен второй экземпляр с
+\textit{NODE\_ENV=production} на порту 3001, после чего контейнер \textit{PostgreSQL}
+остановлен и к обоим экземплярам отправлен запрос, которому нужна база
+данных. Затем база запущена снова.
+Ответы приведены на рисунках~\ref{fig:err500dev}--\ref{fig:err500prod}.
+
+\stpimage[150mm]{img/err500dev.png}{Внутренняя ошибка в режиме \textit{development}}{fig:err500dev}
+
+\stpimage[150mm]{img/err500prod.png}{Внутренняя ошибка в режиме \textit{production}}{fig:err500prod}
+
+Обработчик ошибок переводит известные ошибки в ответ с кодом, а все
+прочие записывает в журнал и заменяет общим сообщением:
+
+\begin{stplisting}
+function errorHandler(error, req, res, next) {
+  const knownError = toAppError(error);
+  if (knownError) {
+    if (knownError.status >= 500) {
+      logger.error(knownError.message,
+        { stack: knownError.stack, path: req.originalUrl });
+    }
+    res.set(knownError.headers || {});
+    res.status(knownError.status)
+      .json(buildBody(knownError));
+    return;
+  }
+  logger.error(error.message, { name: error.name,
+    stack: error.stack, method: req.method,
+    path: req.originalUrl });
+  const serverError = new AppError(GENERIC_SERVER_MESSAGE);
+  res.status(serverError.status)
+    .json(buildBody(serverError, error));
+}
+
+function buildBody(appError, originalError) {
+  const body = { code: appError.code,
+    message: appError.message };
+  if (appError.details) {
+    body.details = appError.details;
+  }
+  if (!config.isProduction && originalError) {
+    body.debug = { name: originalError.name,
+      message: originalError.message,
+      stack: originalError.stack };
+  }
+  return { error: body };
+}
+\end{stplisting}
+
+\subsection{Дополнительная мера 30: журнал ошибок с ротацией}
+
+Ошибки уровня \textit{error} пишутся в файл \textit{logs/error-ГГГГ-ММ-ДД.log}. Файлы
+ротируются ежедневно и при достижении 10~МБ, старые архивируются \textit{gzip} и
+хранятся 14 дней. Модуль ротации ведёт служебный файл \textit{audit.json} со
+списком файлов и сроком хранения. На следующий день после работы с
+сервером файл за прошлые сутки уже заархивирован. Каталог журналов и
+запись об ошибке из предыдущего подраздела представлены на рисунке~\ref{fig:errlog}.
+
+\stpimage[150mm]{img/errlog.png}{Журнал ошибок с ротацией}{fig:errlog}
+
+\subsection{Журнал подозрительных действий}
+
+Отдельный журнал \textit{logs/security-ГГГГ-ММ-ДД.log} содержит по одной
+\textit{JSON}-строке на событие с \textit{IP}-адресом, методом, путём, \textit{user-agent} и
+идентификатором пользователя. Записи, появившиеся при выполнении
+описанных выше запросов, приведены на рисунке~\ref{fig:seclog}.
+
+\stpimage[150mm]{img/seclog.png}{Журнал подозрительных действий}{fig:seclog}
+
+\subsection{Документация и автоматическое тестирование}
+
+Спецификация \textit{OpenAPI}~3.0 хранится в файле \textit{docs/openapi.json} и
+отображается через \textit{Swagger UI} по адресу \textit{/api-docs}. Для страницы
+документации задана отдельная политика \textit{CSP}, разрешающая только
+собственные скрипты и стили. Страница документации и описание маршрута
+входа представлены на рисунках~\ref{fig:swagger}--\ref{fig:swaggerlogin}.
+
+\stpimage[150mm]{img/swagger.png}{\textit{Swagger UI} сервиса}{fig:swagger}
+
+\stpimage[125mm]{img/swagger_login.png}{Описание маршрута \textit{POST /auth/login} в \textit{Swagger UI}}{fig:swaggerlogin}
+
+Коллекция \textit{Postman} содержит 102 запроса в восьми папках с 184
+проверками, включая коды 401, 403, 404, 409, 413, 415, 423 и 429.
+Коллекция запущена через \textit{Newman} на сервере с чистыми счётчиками
+лимитов: выполнено 123 \textit{HTTP}-запроса (часть проверок отправляет
+дополнительные запросы из скриптов), 184 проверки, ошибок нет. Фрагмент
+прогона и итоговая таблица приведены на рисунке~\ref{fig:newman}.
+
+\stpimage[130mm]{img/newman.png}{Прогон коллекции \textit{Postman} через \textit{Newman}}{fig:newman}
+
+\section{Обоснование выбранных дополнительных мер}
+
+Сервис хранит личные задачи и напоминания, поэтому атакующему нужен
+доступ к данным конкретного человека. Меры выбраны по трём направлениям:
+защита учётной записи, сессии и чужих данных. Обоснование приведено в
+таблице~\ref{tab:measures}.
+
+\begin{stplongtable}{
+  колонки = {|>{\raggedright\arraybackslash}p{14mm}|>{\raggedright\arraybackslash}p{42mm}|>{\raggedright\arraybackslash}p{95mm}|},
+  граф    = 3,
+  подпись = {Дополнительные меры защиты и их обоснование},
+  метка   = tab:measures,
+  головка = {Номер & Мера & Обоснование для \textit{GTD}-сервиса},
+}
+  3 & Сложность пароля & Учётная запись открывает весь план жизни
+    пользователя, поэтому пароль из словаря недопустим\\\hline
+  5 & Короткий \textit{access}-токен, \textit{refresh} в \textit{httpOnly cookie} с ротацией &
+    Клиенты держат сессию днями. Короткий \textit{access}-токен ограничивает
+    ущерб от утечки, \textit{cookie} недоступна \textit{XSS}, ротация выявляет кражу\\\hline
+  6 & Блокировка после 5 неудачных входов & Перебор пароля к известному
+    \textit{email} сводится к пяти попыткам за 15 минут\\\hline
+  9 & Защита от \textit{mass assignment} & Поля \textit{role} и \textit{ownerId} дают повышение
+    прав и подмену владельца задачи — прямой путь к чужим данным\\\hline
+  12 & Лимит тела 10~КБ & Самое длинное поле — заметки до 2000 символов;
+    большие тела нужны только для атаки на память\\\hline
+  15 & Только \textit{application/json} & Закрывает отправку запросов
+    \textit{HTML}-формой с другого сайта и путаницу при разборе тела\\\hline
+  19 & Санитизация \textit{HTML} & Заголовки и заметки задач выводятся в
+    веб-клиенте и в уведомлениях, внедрённый скрипт выполнился бы у
+    владельца\\\hline
+  22 & \textit{CORS} по белому списку & Браузер пользователя не позволит чужому
+    сайту читать ответы \textit{API} с его \textit{cookie}\\\hline
+  24 & Ошибки без деталей & Стек раскрывает устройство приложения, одинаковый
+    ответ на вход скрывает существование \textit{email}\\\hline
+  30 & Журнал ошибок с ротацией & Ошибки сохраняются для разбора, а
+    журнал не заполняет диск\\\hline
+\end{stplongtable}
+
+\section{Ответы на контрольные вопросы}
+
+\begin{stpnum}
+  \item Реализованы роли \textit{user}, \textit{moderator} и \textit{admin} с рангами 1, 2 и 3.
+    Пользователь работает только со своими задачами и контекстами и
+    может опубликовать свой контекст в каталоге. Модератор дополнительно
+    читает чужие задачи, контексты и список пользователей — это нужно
+    для разбора жалоб и поддержки. Администратор дополнительно удаляет
+    чужие данные, назначает роли и удаляет учётные записи. Изменять
+    чужие задачи не может никто, поскольку задача — личные данные
+    владельца. Публичный каталог контекстов доступен без входа. Схема
+    повторяет модель курсового проекта: личный планировщик с общим
+    каталогом контекстов и модерацией.
+  \item Пароли хранятся в виде хеша \textit{bcrypt} с 12 раундами, соль \textit{bcrypt}
+    генерирует сам и хранит внутри хеша. От перебора защищают
+    блокировка учётной записи после пяти неудачных входов на 15 минут,
+    лимит 20 неуспешных запросов к \textit{/auth/*} за 15 минут с одного \textit{IP} и
+    требования к сложности пароля. При неизвестном \textit{email} выполняется
+    сравнение с фиктивным хешем, поэтому время ответа не выдаёт
+    существование учётной записи.
+  \item В коде нет сырого \textit{SQL}: все запросы строятся методами \textit{Sequelize}
+    (\textit{findByPk}, \textit{findAndCountAll}, \textit{create}, \textit{update}), которые передают
+    значения в \textit{PostgreSQL} как параметры, а не подставляют их в текст
+    запроса. Дополнительно \textit{Joi} приводит идентификаторы к целым числам,
+    а парсер строки запроса в режиме \textit{simple} не создаёт вложенных
+    объектов, через которые в \textit{ORM} можно было бы передать операторы.
+  \item Используется библиотека \textit{Joi}. Схема описывается для каждого
+    источника данных каждого маршрута, неизвестные поля запрещены.
+    Проверка \textit{email} выглядит так: \textit{Joi.string().trim().lowercase()\allowbreak.email(\{~tlds: \{~allow: false~\}~\})\allowbreak.max(254)}. Строка обрезается от
+    пробелов, приводится к нижнему регистру, проверяется на формат
+    адреса и длину 254 символа — предел стандарта и размер столбца
+    в базе.
+  \item От \textit{XSS} защищают три механизма. На входе \textit{sanitize-html} удаляет
+    из строк все \textit{HTML}-теги. На выходе \textit{Express} экранирует символы <, >
+    и \& в \textit{JSON} как \textit{\textbackslash u003c}, \textit{\textbackslash u003e} и
+    \textit{\textbackslash u0026}. \textit{Helmet} задаёт заголовки
+    \textit{Content-Security-Policy}: \textit{default-src 'none'}, \textit{X-Content-Type-Options}:
+    \textit{nosniff} и \textit{X-Frame-Options}: \textit{DENY}, поэтому браузер не исполнит ответ
+    \textit{API} как страницу и не встроит его во фрейм. Заголовки показаны на
+    рисунке~\ref{fig:health}.
+  \item Глобальный лимит реализован библиотекой \textit{express-rate-limit}:
+    300 запросов за 15 минут с одного \textit{IP} для всех маршрутов. Для
+    маршрутов аутентификации действует отдельный лимит 20 неуспешных
+    запросов. Ответ сверх лимита — 429, содержащий заголовки \textit{RateLimit} и
+    \textit{RateLimit-Policy}, событие \textit{rate\_limit\_exceeded} пишется в журнал.
+    Счётчики хранятся в памяти процесса; для нескольких экземпляров
+    сервера нужен общий \textit{store}, например \textit{Redis}.
+  \item \textit{JWT} — токен из трёх частей в \textit{Base64URL}: заголовок с алгоритмом,
+    полезная нагрузка с утверждениями и подпись. Сервер проверяет
+    подпись секретом и не хранит сессию. \textit{Access}-токен подписывается
+    \textit{HS256}, содержит \textit{sub} (\textit{id} пользователя), \textit{role}, \textit{type}, \textit{iss}, \textit{aud} и \textit{exp}
+    и живёт 15 минут. Клиент хранит его в памяти и передаёт в заголовке
+    \textit{Authorization}: \textit{Bearer}. \textit{Refresh}-токен подписывается другим секретом,
+    передаётся только в \textit{cookie HttpOnly}; \textit{SameSite=Strict}; \textit{Path=/auth},
+    а в базе хранится его \textit{SHA-256} хеш.
+  \item Выбраны меры 3, 5, 6, 9, 12, 15, 19, 22, 24 и 30. Причины
+    приведены в таблице~\ref{tab:measures}: сервис хранит личные данные,
+    поэтому главное — защитить учётную запись от подбора, сессию от
+    кражи и записи от изменения чужими руками.
+  \item Подозрительные действия пишутся отдельным логгером \textit{winston} в
+    файл \textit{logs/security-ГГГГ-ММ-ДД.log} и в консоль. Фиксируются
+    неудачный вход, блокировка, вход в заблокированную учётную запись,
+    поддельный токен, повторное использование \textit{refresh}-токена, отказ по
+    роли, обращение к чужому ресурсу, превышение лимита, запрос с чужого
+    \textit{Origin} и лишние поля в теле. Пример реальной записи из журнала
+    (в файле это одна строка):
+\begin{stplisting}
+{"action":"read","channel":"security",
+ "event":"foreign_resource_access","ip":"::1",
+ "level":"warn","message":"foreign_resource_access",
+ "method":"GET","ownerId":3,"path":"/tasks/3",
+ "resourceId":3,"resourceType":"Task","role":"user",
+ "timestamp":"2026-10-06T13:27:03.938Z",
+ "userAgent":"node","userId":16}
+\end{stplisting}
+    Запись показывает, что пользователь с \textit{id}~16 и ролью \textit{user} пытался
+    прочитать задачу 3, принадлежащую пользователю 3.
+  \item \textit{Access}-токен передаётся в заголовке \textit{Authorization}, который
+    браузер не добавляет к запросу сам, поэтому \textit{CSRF} для основных
+    маршрутов невозможен. \textit{Refresh-cookie} имеет \textit{SameSite=Strict} и путь
+    \textit{/auth}, то есть не отправляется с запросами, инициированными другим
+    сайтом. Кроме того, тело принимается только как \textit{application/json},
+    а \textit{HTML}-форма другого сайта такой тип отправить не может, и \textit{CORS}
+    пропускает только источники из белого списка.
+  \item Используются \textit{refresh}-токены с ротацией. При входе выдаётся пара
+    токенов, при обновлении старый \textit{refresh}-токен отзывается и
+    заменяется новым, связь фиксируется в поле \textit{replacedByHash}. Повторное
+    предъявление отозванного токена считается кражей: отзываются все
+    сессии пользователя. Выход отзывает токен и очищает \textit{cookie}.
+  \item В \textit{production} на непредвиденную ошибку возвращается только
+    «Внутренняя ошибка сервера» с кодом \textit{INTERNAL\_ERROR}, подробности
+    уходят в журнал ошибок. Ошибка входа одинакова для неизвестного
+    \textit{email} и неверного пароля. Сообщения об ошибках валидации называют
+    поле и правило, но не раскрывают устройство приложения.
+  \item Размер тела ограничен 10~КБ параметром \textit{limit} в \textit{express.json}.
+    Превышение даёт ответ 413 и код \textit{PAYLOAD\_TOO\_LARGE} до того, как
+    тело будет разобрано целиком.
+  \item Пароль должен содержать от 8 до 72 символов, хотя бы одну
+    букву, одну цифру и один спецсимвол. Правило применяется при
+    регистрации и при создании учётных записей \textit{seed}.
+  \item \textit{API} тестировалось коллекцией \textit{Postman}, запущенной через \textit{Newman}:
+    102 запроса, 184 проверки, 0 ошибок. Негативные сценарии: запрос
+    без токена и с поддельным токеном, токен удалённого пользователя,
+    действия \textit{user} и \textit{moderator} сверх своих прав, чтение и изменение
+    чужих задач и контекстов, некорректные \textit{email} и пароль, лишние поля
+    \textit{role} и \textit{ownerId}, неизвестные \textit{query}-параметры, неверный \textit{JSON}, тело
+    больше 10~КБ, тип \textit{text/plain}, \textit{HTML} и скрипты в полях, чужой \textit{Origin},
+    повторный \textit{refresh}, \textit{refresh} после выхода, пять неудачных входов
+    подряд и перебор пароля до 429. Дополнительно запросы выполнены
+    вручную, их результаты приведены в разделе~\ref{sec:work}.
+  \item Покрытие категорий \textit{OWASP Top 10:2021} приведено в
+    таблице~\ref{tab:owasp}.
+\end{stpnum}
+
+\begin{stplongtable}{
+  колонки = {|>{\raggedright\arraybackslash}p{52mm}|>{\raggedright\arraybackslash}p{100mm}|},
+  граф    = 2,
+  подпись = {Покрытие \textit{OWASP Top 10:2021}},
+  метка   = tab:owasp,
+  головка = {Категория & Реализованные меры},
+}
+  \textit{A01 Broken Access Control} & \textit{roleGuard}, проверка владельца в
+    \textit{accessPolicy}, запрет чужого \textit{ownerId} в фильтрах, защита от \textit{mass assignment}, \textit{CORS} по белому списку\\\hline
+  \textit{A02 Cryptographic Failures} & \textit{bcrypt} с 12 раундами, секреты \textit{JWT}
+    не короче 32 символов и различные для двух типов токенов,
+    \textit{SHA-256} хеш \textit{refresh}-токена в базе, \textit{HSTS}, флаг \textit{Secure} у \textit{cookie} в
+    \textit{production}\\\hline
+  \textit{A03 Injection} & параметризованные запросы \textit{Sequelize}, \textit{Joi} для всех
+    входных данных, санитизация \textit{HTML}, экранирование \textit{JSON}, \textit{CSP}\\\hline
+  \textit{A04 Insecure Design} & блокировка учётной записи, ротация и
+    обнаружение повторного \textit{refresh}-токена, запрет изменения чужих
+    задач для всех ролей, роль из базы данных при каждом запросе\\\hline
+  \textit{A05 Security Misconfiguration} & \textit{helmet}, отключён \textit{X-Powered-By},
+    ошибки без деталей в \textit{production}, только \textit{application/json},
+    \textit{PostgreSQL} слушает только 127.0.0.1, секреты в \textit{.env} вне
+    репозитория\\\hline
+  \textit{A06 Vulnerable and Outdated Components} & актуальные версии
+    зависимостей, зафиксированные в \textit{package-lock.json}. Аудит \textit{npm}
+    показывает две уязвимости средней степени в пакете \textit{uuid},
+    подключаемом через \textit{Sequelize}; уязвимые функции \textit{v3}, \textit{v5}, \textit{v6} с
+    буфером в проекте не вызываются\\\hline
+  \textit{A07 Identification and Authentication Failures} & сложность пароля,
+    блокировка, лимит запросов к \textit{/auth/*}, \textit{access}-токен на 15 минут,
+    одинаковый ответ и время ответа при неверном \textit{email} и пароле\\\hline
+  \textit{A08 Software and Data Integrity Failures} & проверка подписи \textit{JWT} с
+    явным списком алгоритмов, издателем, аудиторией и типом токена;
+    \textit{lock}-файл зависимостей\\\hline
+  \textit{A09 Security Logging and Monitoring Failures} & журнал подозрительных
+    действий, журнал ошибок с ротацией, журнал \textit{HTTP}-запросов\\\hline
+  \textit{A10 Server-Side Request Forgery} & сервис не выполняет запросы по
+    адресам, полученным от клиента, поэтому вектор отсутствует\\\hline
+\end{stplongtable}
+
+\stpunnumbered{Заключение}
+
+В ходе работы разработан безопасный \textit{REST API} сервиса планирования задач
+по методу \textit{GTD}. Реализованы регистрация и вход с \textit{JWT}, ролевая модель \textit{user},
+\textit{moderator} и \textit{admin} с проверкой роли в \textit{middleware} и проверкой владельца в
+сервисах, хранение данных в \textit{PostgreSQL} через \textit{Sequelize}, проверка всех
+входных данных схемами \textit{Joi}, глобальный лимит запросов и журнал
+подозрительных действий.
+
+Дополнительно реализованы десять мер: сложность пароля, \textit{refresh}-токен в
+\textit{httpOnly cookie} с ротацией, блокировка после пяти неудачных входов,
+защита от \textit{mass assignment}, лимит тела 10~КБ, приём только
+\textit{application/json}, санитизация \textit{HTML}, \textit{CORS} по белому списку, ошибки без
+деталей в \textit{production} и журнал ошибок с ротацией. Каждая мера проверена
+реальным запросом к серверу, результаты приведены в разделе~\ref{sec:work}.
+
+Коллекция \textit{Postman} из 102 запросов и 184 проверок выполнена через \textit{Newman}
+без ошибок, а ручная проверка дополнительных мер подтвердила их
+работу на реальных запросах.
+
+Код размещён в репозитории
+\textit{https://github.com/\allowbreak{}Alexandr-Obraztsov/\allowbreak{}gtd-task-service} в ветке \textit{ipr21},
+коллекция \textit{Postman} — по адресу
+\textit{https://github.com/\allowbreak{}Alexandr-Obraztsov/\allowbreak{}gtd-task-service/\allowbreak{}blob/\allowbreak{}ipr21/\allowbreak{}postman/\allowbreak{}gtd-secure-api.postman\_collection.json}.
+Разработанный \textit{API} служит серверной частью курсового проекта и будет
+дополнен клиентским приложением и рассылкой напоминаний.
+
+\end{document}
