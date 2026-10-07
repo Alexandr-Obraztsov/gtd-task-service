@@ -21,6 +21,8 @@ const RUSSIAN_MESSAGES = Object.freeze({
   'boolean.base': '{{#label}} должно быть true или false',
   'date.base': '{{#label}} должно быть датой',
   'date.format': '{{#label}} должно быть датой в формате ISO 8601',
+  'date.min': '{{#label}} должно быть не раньше {{:#limit}}',
+  'date.max': '{{#label}} должно быть не позже {{:#limit}}',
 });
 
 module.exports = { RUSSIAN_MESSAGES };
