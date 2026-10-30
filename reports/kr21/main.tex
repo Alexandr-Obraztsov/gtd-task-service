@@ -1,0 +1,484 @@
+\documentclass{stp}
+
+\newcommand{\en}[1]{\textit{#1}}
+
+\begin{document}
+
+\stptitle{
+  вид        = контрольная,
+  номер      = 1,
+  тема       = {Серверная разработка},
+  дисциплина = {ИТиВП},
+  студент    = {А. С. Образцов},
+  группа     = {320601},
+  преподаватель = {Н. В. Хаджинова},
+}
+
+\section{Цель работы}
+
+Целью контрольной работы является разработка \en{REST API} на платформе
+\en{Node.js} с аутентификацией по \en{JWT}, хранением данных в
+\en{PostgreSQL} и полным набором \en{CRUD}"=операций для сущности,
+соответствующей теме курсового проекта. Тема курсового проекта --- сервис
+планирования задач по методу \en{GTD} (\en{Getting Things Done}) с
+контекстами и напоминаниями (вариант~27).
+
+Метод \en{GTD} предполагает, что все дела человека сначала собираются во
+входящие, а затем разбираются по спискам. Поэтому основной сущностью
+сервиса выбрана задача (\en{Task}): она хранит заголовок, заметки, статус
+(\en{inbox}, \en{next}, \en{waiting}, \en{scheduled}, \en{someday},
+\en{done}), срок выполнения \en{dueDate}, время напоминания \en{remindAt},
+контекст \en{contextId} и владельца \en{ownerId}. Помимо стандартных полей
+\en{id}, \en{createdAt} и \en{updatedAt} сущность содержит семь собственных
+полей, что превышает минимум в четыре поля. Поле \en{status} ограничено
+перечислением, поле \en{title} и обе даты проходят валидацию, а уникальность
+обеспечивается полем \en{email} модели пользователя.
+
+\section{Ход работы}\label{sec:work}
+
+\subsection{Выбор технологий и структура проекта}
+
+Сервис написан на \en{Node.js} с фреймворком \en{Express~5}. Данные хранятся
+в \en{PostgreSQL~16}, запущенной в контейнере \en{Docker}, доступ к базе
+выполняется через \en{ORM Sequelize}. Пароли хешируются библиотекой
+\en{bcrypt}, токены подписываются библиотекой \en{jsonwebtoken}, входные
+данные проверяются схемами \en{Joi}. Для защиты используются \en{helmet},
+\en{cors} и \en{express-rate-limit}. Выбор \en{PostgreSQL} вместо
+\en{MongoDB} объясняется структурой данных: у задач, контекстов и
+пользователей есть чёткие связи и ограничения целостности, которые
+реляционная база проверяет сама.
+
+Код разделён на слои: маршруты (\en{routes}) описывают цепочку
+\en{middleware}, контроллеры (\en{controllers}) читают проверенные данные
+запроса и вызывают сервисы (\en{services}), в которых сосредоточены
+бизнес-логика и проверка прав доступа, а модели (\en{models}) описывают
+таблицы и связи. Настройки хранятся в файле \en{.env}, образец
+\en{.env.example} лежит в репозитории.
+
+Исходный код размещён в репозитории
+\en{https://github.com/\allowbreak{}Alexandr-Obraztsov/\allowbreak{}gtd-task-service},
+ветка \en{kr21}. Коллекция \en{Postman} находится в файле
+\en{postman/\allowbreak{}gtd-secure-api.postman\_collection.json}, документация
+--- в файлах \en{API.md} и \en{docs/\allowbreak{}openapi.json}, инструкция по
+запуску --- в \en{README.md}.
+
+\subsection{Схема базы данных}
+
+База данных состоит из четырёх таблиц. Таблица \en{users} хранит учётные
+записи: уникальный \en{email}, хеш пароля, роль (\en{user}, \en{moderator},
+\en{admin}), счётчик неудачных входов и время окончания блокировки. Таблица
+\en{refresh\_tokens} хранит хеши выданных \en{refresh}-токенов. Таблицы
+\en{contexts} и \en{tasks} хранят контексты и задачи, у каждой записи есть
+владелец \en{ownerId}. Схема базы данных представлена на
+рисунке~\ref{fig:er}.
+
+\stpimage[160mm]{img/er.png}{Схема базы данных сервиса}{fig:er}
+
+При удалении пользователя каскадно удаляются его задачи, контексты и
+токены. При удалении контекста задачи не удаляются: поле \en{contextId} у
+них становится пустым.
+
+\subsection{Модели}
+
+Модель пользователя содержит уникальный \en{email} с проверкой формата и
+роль из перечисления. Метод \en{toJSON} возвращает только открытые поля,
+поэтому хеш пароля не может попасть в ответ даже по ошибке в контроллере:
+
+\begin{stplisting}
+const PUBLIC_FIELDS = Object.freeze(
+  ['id', 'email', 'role', 'createdAt', 'updatedAt']);
+
+class User extends Model {
+  toJSON() {
+    const values = this.get({ plain: true });
+    return Object.fromEntries(
+      PUBLIC_FIELDS.map((field) => [field, values[field]]));
+  }
+}
+
+User.init({
+  id: { type: DataTypes.INTEGER, autoIncrement: true,
+    primaryKey: true },
+  email: { type: DataTypes.STRING(254), allowNull: false,
+    unique: true, validate: { isEmail: true } },
+  passwordHash: { type: DataTypes.STRING(100),
+    allowNull: false },
+  role: { type: DataTypes.ENUM(...ROLE_VALUES),
+    allowNull: false, defaultValue: ROLES.USER },
+}, { sequelize, modelName: 'User', tableName: 'users' });
+\end{stplisting}
+
+Модель задачи ограничивает статус перечислением \en{GTD} и задаёт индексы
+для выборки по владельцу и статусу и для поиска наступивших напоминаний:
+
+\begin{stplisting}
+Task.init({
+  id: { type: DataTypes.INTEGER, autoIncrement: true,
+    primaryKey: true },
+  title: { type: DataTypes.STRING(200), allowNull: false },
+  notes: { type: DataTypes.TEXT, allowNull: false,
+    defaultValue: '' },
+  status: { type: DataTypes.ENUM(...TASK_STATUS_VALUES),
+    allowNull: false, defaultValue: TASK_STATUS.INBOX },
+  dueDate: { type: DataTypes.DATE, allowNull: true },
+  remindAt: { type: DataTypes.DATE, allowNull: true },
+  contextId: { type: DataTypes.INTEGER, allowNull: true },
+  ownerId: { type: DataTypes.INTEGER, allowNull: false },
+}, {
+  sequelize, modelName: 'Task', tableName: 'tasks',
+  indexes: [{ fields: ['ownerId', 'status'] },
+    { fields: ['remindAt'] }],
+});
+\end{stplisting}
+
+\subsection{Маршруты, роли и права доступа}
+
+Маршруты задач требуют аутентификации для всех операций, а каждый маршрут
+имеет собственную схему проверки входных данных. Маршрут
+\en{GET /tasks} принимает необязательные фильтры \en{status},
+\en{contextId} и \en{dueBefore}, а также постраничный вывод --- это
+дополнительный эндпоинт с фильтрацией, которого требует задание. Для
+\en{GET /tasks/reminders/due} возвращаются задачи пользователя, время
+напоминания которых уже наступило:
+
+\begin{stplisting}
+const router = Router();
+
+router.use(authenticate);
+
+router.get('/', validate(schemas.list), controller.list);
+router.post('/', validate(schemas.create), controller.create);
+router.get('/reminders/due', validate(schemas.dueReminders),
+  controller.dueReminders);
+router.get('/:id', validate(schemas.getOne), controller.getOne);
+router.put('/:id', validate(schemas.replace),
+  controller.replace);
+router.patch('/:id', validate(schemas.update),
+  controller.update);
+router.delete('/:id', validate(schemas.remove),
+  controller.remove);
+\end{stplisting}
+
+Права доступа заданы заданием контрольной работы: создавать задачи может
+любая аутентифицированная роль (\en{user} и выше), обновлять --- автор
+задачи или администратор, удалять --- только администратор. Проверка
+выполняется в сервисе, поскольку для неё нужна сама запись из базы данных.
+Администратору разрешено обновление, остальные роли обновляют только свои
+задачи. Удаление проверяет роль до обращения к базе, поэтому ответ не
+раскрывает существование чужой задачи:
+
+\begin{stplisting}
+const TASK_ACCESS_POLICY = Object.freeze({
+  ...PRIVILEGED_ROLE_BY_ACTION,
+  [ACTIONS.UPDATE]: ROLES.ADMIN,
+});
+
+function replaceTask(actor, id, input) {
+  return updateTask(actor, id,
+    { ...FULL_UPDATE_DEFAULTS, ...input });
+}
+
+async function deleteTask(actor, id) {
+  if (!hasRole(actor.role, ROLES.ADMIN)) {
+    throw new ForbiddenError(
+      'Удалять задачи может только администратор',
+      'ADMIN_ONLY');
+  }
+  const task = await loadTask(actor, id, ACTIONS.DELETE);
+  await task.destroy();
+}
+\end{stplisting}
+
+Метод \en{PUT} выполняет полную замену: обязателен только заголовок, а не
+переданные поля (\en{notes}, \en{status}, \en{dueDate}, \en{remindAt},
+\en{contextId}) сбрасываются к значениям по умолчанию. Метод \en{PATCH}
+меняет только переданные поля.
+
+\subsection{Валидация входных данных}
+
+Для каждого источника данных каждого маршрута (\en{params}, \en{query},
+\en{body}) описана схема \en{Joi}, неизвестные поля запрещены. Схема
+создания задачи требует заголовок, ограничивает его длину, проверяет
+статус по перечислению и приводит даты к формату \en{ISO~8601} в
+допустимом диапазоне; схема замены повторяет её:
+
+\begin{stplisting}
+const title = Joi.string().trim().min(1).max(200);
+const notes = Joi.string().trim().max(2000).allow('');
+const status = Joi.string().valid(...TASK_STATUS_VALUES);
+const boundedDate = Joi.date().iso()
+  .min('2000-01-01T00:00:00Z').max('2100-12-31T23:59:59Z');
+
+const create = {
+  body: Joi.object({
+    title: title.required(),
+    notes,
+    status,
+    dueDate: boundedDate.allow(null),
+    remindAt: boundedDate.allow(null),
+    contextId: id.allow(null),
+  }),
+};
+
+const replace = { params: idParams, body: create.body };
+\end{stplisting}
+
+Для регистрации пароль должен содержать не менее восьми символов, букву,
+цифру и спецсимвол, а \en{email} приводится к нижнему регистру и
+проверяется на формат. Кроме схем, действует ограничение тела запроса
+размером 10~КБ и приём только формата \en{application/json}.
+
+\subsection{Аутентификация}
+
+При регистрации пароль хешируется алгоритмом \en{bcrypt} с 12 раундами, в
+базу попадает только хеш. Уникальность \en{email} проверяется запросом к
+базе и дополнительно гарантируется ограничением \en{UNIQUE} на столбец;
+при повторной регистрации сервер отвечает статусом 409:
+
+\begin{stplisting}
+async function registerUser({ email, password }) {
+  const existing = await User.findOne({ where: { email } });
+  if (existing) {
+    throw new ConflictError(
+      'Пользователь с таким email уже существует');
+  }
+  const passwordHash = await hashPassword(password);
+  const user = await User.create(
+    { email, passwordHash, role: ROLES.USER },
+    { fields: ['email', 'passwordHash', 'role'] });
+  return user;
+}
+\end{stplisting}
+
+При входе пароль сравнивается с хешем, после чего выдаётся пара токенов:
+короткоживущий \en{access}"=токен (15 минут) возвращается в теле ответа, а
+\en{refresh}"=токен --- в \en{httpOnly cookie}. \en{Middleware authenticate}
+проверяет формат заголовка \en{Authorization}, подпись и срок действия
+токена, а затем загружает пользователя из базы. Роль берётся из базы, а не
+из токена, поэтому понижение роли действует сразу:
+
+\begin{stplisting}
+async function authenticate(req, res, next) {
+  const payload = decodeAccessToken(req,
+    extractBearerToken(req));
+  const user = await User.findByPk(Number(payload.sub));
+  if (!user) {
+    throw new UnauthorizedError('Пользователь не найден',
+      'TOKEN_INVALID');
+  }
+  req.actor = { id: user.id, email: user.email,
+    role: user.role, ip: req.ip };
+  next();
+}
+\end{stplisting}
+
+\subsection{Проверка регистрации и входа}
+
+Все запросы выполнялись к работающему серверу, ответы на рисунках
+получены от него без изменений; значения токенов и паролей сокращены или
+скрыты. Результат регистрации нового пользователя представлен на
+рисунке~\ref{fig:register}. Сервер вернул статус 201 и открытые поля
+пользователя, роль назначена автоматически.
+
+\stpimage[150mm]{img/register.png}{Регистрация нового пользователя}{fig:register}
+
+Повторная регистрация с тем же \en{email} отклонена: ответ приведён на
+рисунке~\ref{fig:registerdup}. Это подтверждает уникальность адреса.
+
+\stpimage[150mm]{img/registerDup.png}{Повторная регистрация с занятым \en{email}}{fig:registerdup}
+
+Запрос с некорректными данными показан на рисунке~\ref{fig:registerbad}.
+Сервер вернул статус 400~с кодом \en{VALIDATION\_ERROR} и списком ошибок по
+каждому полю.
+
+\stpimage[125mm]{img/registerBad.png}{Ошибки валидации при регистрации}{fig:registerbad}
+
+Вход с верными данными представлен на рисунке~\ref{fig:login}. В ответе
+приходят данные пользователя и \en{JWT} для заголовка \en{Authorization}.
+
+\stpimage[150mm]{img/login.png}{Вход и получение \en{JWT}}{fig:login}
+
+Вход с неверным паролем завершается статусом 401 и общим сообщением, не
+выдающим существование учётной записи (рисунок~\ref{fig:loginbad}).
+
+\stpimage[150mm]{img/loginBad.png}{Вход с неверным паролем}{fig:loginbad}
+
+Доступ к защищённому маршруту без токена и с поддельным токеном показан на
+рисунках~\ref{fig:notoken} и~\ref{fig:badtoken}: в обоих случаях сервер
+возвращает статус 401~с разными кодами ошибки.
+
+\stpimage[150mm]{img/noToken.png}{Запрос к защищённому маршруту без токена}{fig:notoken}
+
+\stpimage[150mm]{img/badToken.png}{Запрос с поддельным токеном}{fig:badtoken}
+
+\subsection{Проверка \en{CRUD}-операций}
+
+Создание задачи с токеном пользователя показано на
+рисунке~\ref{fig:create}. Сервер вернул статус 201, присвоил задаче
+идентификатор и владельца, а даты привёл к единому формату.
+
+\stpimage[140mm]{img/createTask.png}{Создание задачи}{fig:create}
+
+Получение списка с фильтрацией по статусу и контексту (дополнительный
+эндпоинт) приведено на рисунке~\ref{fig:list}. В ответ попадают только
+задачи, подходящие под оба условия, а вместе с ними --- общее число
+записей и параметры страницы.
+
+\stpimage[135mm]{img/listTasks.png}{Список задач с фильтрацией}{fig:list}
+
+Получение одной задачи по идентификатору представлено на
+рисунке~\ref{fig:get}.
+
+\stpimage[140mm]{img/getTask.png}{Получение задачи по идентификатору}{fig:get}
+
+Полная замена задачи методом \en{PUT} показана на рисунке~\ref{fig:put}.
+Не переданные поля сброшены к значениям по умолчанию.
+
+\stpimage[140mm]{img/putTask.png}{Полная замена задачи методом \en{PUT}}{fig:put}
+
+Ошибки валидации при создании и при замене задачи приведены на
+рисунках~\ref{fig:createbad} и~\ref{fig:putbad}: пустой заголовок и
+недопустимый статус, а также отсутствие обязательного поля \en{title}
+отклоняются статусом 400.
+
+\stpimage[135mm]{img/createBad.png}{Создание задачи с недопустимыми данными}{fig:createbad}
+
+\stpimage[135mm]{img/putBad.png}{Замена задачи без заголовка}{fig:putbad}
+
+Права на удаление проверены двумя запросами. Попытка удалить задачу от
+имени пользователя с ролью \en{user} показана на
+рисунке~\ref{fig:deleteuser}: сервер вернул статус 403~с кодом
+\en{ADMIN\_ONLY}, даже несмотря на то что пользователь является владельцем.
+
+\stpimage[150mm]{img/deleteUser.png}{Попытка удаления от имени \en{user}}{fig:deleteuser}
+
+Удаление той же задачи администратором представлено на
+рисунке~\ref{fig:deleteadmin}: сервер вернул статус 204 без тела ответа.
+
+\stpimage[150mm]{img/deleteAdmin.png}{Удаление задачи администратором}{fig:deleteadmin}
+
+Повторное обращение к удалённой задаче завершилось статусом 404
+(рисунок~\ref{fig:getdeleted}).
+
+\stpimage[150mm]{img/getDeleted.png}{Запрос удалённой задачи}{fig:getdeleted}
+
+\subsection{Документация и автоматическое тестирование}
+
+\en{API} описан в файле \en{API.md} и в спецификации \en{OpenAPI~3.0},
+которая отдаётся интерактивной страницей \en{Swagger UI} по адресу
+\en{/api-docs}. Раздел задач из \en{Swagger UI} приведён на
+рисунке~\ref{fig:swagger}: видны все маршруты, включая \en{PUT} и
+\en{DELETE} с пометкой <<только \en{admin}>>.
+
+\stpimage[150mm]{img/swagger.png}{Раздел задач в \en{Swagger UI}}{fig:swagger}
+
+Для повторяемой проверки подготовлена коллекция \en{Postman} из 129
+запросов и 196 проверок: регистрация, вход, \en{CRUD}, ошибки валидации,
+доступ без токена, чужие ресурсы и роли. Прогон коллекции через
+\en{Newman} завершился без ошибок, результат показан на
+рисунке~\ref{fig:newman}.
+
+\stpimage[150mm]{img/newman.png}{Прогон коллекции \en{Postman} через \en{Newman}}{fig:newman}
+
+\section{Ответы на контрольные вопросы}
+
+\begin{stpnum}
+  \item Выбрана сущность <<задача>> (\en{Task}): сервис планирования по
+    методу \en{GTD} --- тема курсового проекта, а задача является его
+    центральным объектом. Сущность содержит заголовок, заметки, статус,
+    срок, время напоминания, контекст и владельца.
+  \item Использованы \en{Node.js} и \en{Express~5} как привычный и
+    быстрый стек для \en{REST API}, \en{PostgreSQL} и \en{Sequelize} для
+    хранения связанных данных с проверкой целостности, \en{jsonwebtoken} и
+    \en{bcrypt} для аутентификации, \en{Joi} для валидации, \en{helmet},
+    \en{cors} и \en{express-rate-limit} для защиты.
+  \item Пользователь регистрируется запросом \en{POST /auth/register}:
+    пароль хешируется, запись сохраняется с ролью \en{user}. При входе
+    \en{POST /auth/login} пароль сверяется с хешем, после чего выдаются
+    \en{access}"=токен в теле ответа и \en{refresh}"=токен в \en{httpOnly
+    cookie}. Защищённые маршруты проверяют заголовок
+    \en{Authorization: Bearer}.
+  \item Пароли хешируются алгоритмом \en{bcrypt} с 12 раундами; соль
+    генерируется автоматически и хранится в хеше. Это важно, потому что
+    при утечке базы злоумышленник получает не пароли, а хеши, подбор
+    которых требует много времени и ресурсов.
+  \item Реализованы роли \en{user}, \en{moderator} и \en{admin}.
+    Пользователь создаёт задачи и работает со своими. Модератор
+    дополнительно читает чужие задачи. Администратор дополнительно
+    изменяет любые задачи, удаляет задачи и управляет пользователями.
+    Удалять задачи может только администратор.
+  \item Перед созданием пользователя выполняется поиск по \en{email}, при
+    совпадении возвращается статус 409. Дополнительно на столбец
+    наложено ограничение \en{UNIQUE}, которое защищает от гонки двух
+    одновременных регистраций. Адрес предварительно приводится к нижнему
+    регистру.
+  \item \en{GET} --- получение списка и отдельной задачи, \en{POST} ---
+    регистрация, вход и создание задач, \en{PUT} --- полная замена задачи,
+    \en{PATCH} --- частичное изменение, \en{DELETE} --- удаление задачи
+    администратором.
+  \item Каждый маршрут имеет схему \en{Joi}. При ошибке возвращается
+    статус 400 и объект с кодом \en{VALIDATION\_ERROR} и списком
+    нарушений. Пример ответа:
+    \en{\{ "error": \{ "code": "VALIDATION\_ERROR", "message":
+    "Некорректные данные запроса", "details": [ \{ "location": "body",
+    "field": "email", "message": "должно быть корректным email" \} ] \}
+    \}}.
+  \item В коде нет сырого \en{SQL}: все запросы строятся методами
+    \en{Sequelize}, которые передают значения как параметры, а не
+    подставляют их в текст запроса. Идентификаторы дополнительно
+    приводятся \en{Joi} к целым числам.
+  \item Применены \en{helmet} (строгая \en{CSP}, \en{nosniff}, запрет
+    встраивания), ограничение частоты запросов (глобально 300 за 15 минут,
+    для маршрутов \en{/auth/*} --- 20 неуспешных), \en{CORS} с белым
+    списком источников, лимит тела запроса 10~КБ, приём только
+    \en{application/json}, санитизация \en{HTML} в строках и блокировка
+    учётной записи после пяти неудачных входов.
+  \item Использованы \en{Swagger UI} по спецификации \en{OpenAPI~3.0} и
+    файл \en{API.md}. Спецификация машиночитаема, по ней можно сразу
+    пробовать запросы, а \en{API.md} удобно читать в репозитории.
+  \item Использованы коллекция \en{Postman} из 129 запросов с 196
+    проверками, запуск через \en{Newman} из консоли и ручные запросы к
+    работающему серверу, результаты которых приведены на рисунках.
+  \item Создание --- 201 \en{Created}, успешное обновление --- 200
+    \en{OK}, удаление --- 204 \en{No Content}. Ошибочные случаи: 400, 401,
+    403, 404 и 409.
+  \item Секреты (\en{JWT\_SECRET}, \en{JWT\_REFRESH\_SECRET}, строка
+    подключения к базе) хранятся в файле \en{.env}, который не попадает в
+    репозиторий. В репозитории лежит только \en{.env.example} с
+    заглушками. При запуске сервер не принимает секреты короче 32
+    символов.
+  \item \en{CORS} (\en{Cross-Origin Resource Sharing}) --- механизм, по
+    которому браузер разрешает странице с одного источника обращаться к
+    \en{API} другого источника. Сервер принимает запросы только с
+    источников из переменной \en{CORS\_ORIGINS} (адреса разработки
+    клиента \en{http://localhost:5173} и \en{http://localhost:3000}),
+    запросы с чужих источников отклоняются.
+  \item Планируется подключить клиент на \en{React}, добавить рассылку
+    напоминаний по расписанию, повторяющиеся задачи, общий доступ к
+    спискам и развёртывание на облачной платформе.
+\end{stpnum}
+
+\stpunnumbered{Заключение}
+
+В ходе контрольной работы разработан \en{REST API} сервиса планирования
+задач по методу \en{GTD} на \en{Node.js} и \en{Express}. Реализованы
+регистрация и вход с \en{JWT}, хранение данных в \en{PostgreSQL} через
+\en{Sequelize}, полный набор \en{CRUD}"=операций для сущности <<задача>>
+с правами по ролям: создание --- любая аутентифицированная роль, обновление
+--- автор или администратор, удаление --- только администратор.
+
+Все входные данные проверяются схемами \en{Joi}, ошибки возвращаются в
+едином формате с кодами, результаты проверок приведены в
+разделе~\ref{sec:work}. Добавлены фильтрация списка задач и выборка
+сработавших напоминаний, подготовлены документация в \en{Swagger UI},
+файле \en{API.md} и коллекция \en{Postman}, прогон которой через
+\en{Newman} прошёл без ошибок.
+
+Код размещён в репозитории
+\en{https://github.com/\allowbreak{}Alexandr-Obraztsov/\allowbreak{}gtd-task-service}
+в ветке \en{kr21}, коллекция \en{Postman} --- по адресу
+\en{https://github.com/\allowbreak{}Alexandr-Obraztsov/\allowbreak{}gtd-task-service/\allowbreak{}blob/\allowbreak{}kr21/\allowbreak{}postman/\allowbreak{}gtd-secure-api.postman\_collection.json}.
+Разработанный \en{API} служит серверной частью курсового проекта и будет
+дополнен клиентским приложением.
+
+\end{document}
