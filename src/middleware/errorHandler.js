@@ -1,6 +1,7 @@
 const { UniqueConstraintError, ForeignKeyConstraintError } = require('sequelize');
 const config = require('../config/env');
 const { logger } = require('../utils/logger');
+const sentry = require('../utils/sentry');
 const {
   AppError,
   ValidationError,
@@ -44,6 +45,14 @@ function buildBody(appError, originalError) {
   return { error: body };
 }
 
+function describeForReport(req) {
+  return {
+    method: req.method,
+    path: req.originalUrl,
+    user: req.actor ? req.actor.id : undefined,
+  };
+}
+
 function notFoundHandler(req, res, next) {
   next(new NotFoundError(`Маршрут ${req.method} ${req.path} не найден`));
 }
@@ -54,6 +63,16 @@ function errorHandler(error, req, res, next) {
   if (knownError) {
     if (knownError.status >= 500) {
       logger.error(knownError.message, { stack: knownError.stack, path: req.originalUrl });
+      sentry.captureException(knownError, describeForReport(req));
+    } else if (knownError.status !== 404) {
+      logger.warn('request_rejected', {
+        status: knownError.status,
+        code: knownError.code,
+        method: req.method,
+        path: req.originalUrl,
+        ip: req.ip,
+        fields: (knownError.details || []).map(({ location, field }) => `${location}.${field}`),
+      });
     }
     res.set(knownError.headers || {});
     res.status(knownError.status).json(buildBody(knownError));
@@ -61,6 +80,7 @@ function errorHandler(error, req, res, next) {
   }
 
   logger.error(error.message, { name: error.name, stack: error.stack, method: req.method, path: req.originalUrl });
+  sentry.captureException(error, describeForReport(req));
   const serverError = new AppError(GENERIC_SERVER_MESSAGE);
   res.status(serverError.status).json(buildBody(serverError, error));
 }

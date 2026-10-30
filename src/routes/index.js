@@ -5,6 +5,7 @@ const userRoutes = require('./user.routes');
 const contextRoutes = require('./context.routes');
 const taskRoutes = require('./task.routes');
 const docsRoutes = require('./docs.routes');
+const monitoringRoutes = require('./monitoring.routes');
 
 const router = Router();
 
@@ -12,6 +13,7 @@ router.get('/health', validate(), (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 
+router.use(monitoringRoutes);
 router.use('/api-docs', docsRoutes);
 router.use('/auth', authRoutes);
 router.use('/users', userRoutes);

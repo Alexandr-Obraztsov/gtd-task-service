@@ -9,6 +9,7 @@ const sequelize = new Sequelize(config.databaseUrl, {
     underscored: false,
     freezeTableName: false,
   },
+  dialectOptions: config.databaseSsl ? { ssl: { require: true, rejectUnauthorized: true } } : {},
   pool: {
     max: 10,
     min: 0,

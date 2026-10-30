@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>GTD Task Service — метрики</title>
+  <link rel="stylesheet" href="/dashboard/dashboard.css">
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>GTD Task Service</h1>
+      <p class="sub" id="service-line">Метрики сервера</p>
+    </div>
+    <div class="status" id="status-pill" data-state="idle">нет данных</div>
+  </header>
+
+  <main>
+    <section class="card auth" id="auth-card">
+      <h2>Доступ</h2>
+      <p class="hint">Введите <code>METRICS_TOKEN</code> или access-токен администратора. Токен хранится только в памяти вкладки (sessionStorage) и отправляется в заголовке <code>Authorization</code>.</p>
+      <form id="token-form" autocomplete="off">
+        <label for="token-input">Токен</label>
+        <input id="token-input" type="password" required minlength="16" maxlength="2048" spellcheck="false" autocomplete="off">
+        <button type="submit">Подключиться</button>
+        <button type="button" id="disconnect" class="ghost" hidden>Отключиться</button>
+      </form>
+      <p class="error" id="error" role="alert" hidden></p>
+    </section>
+
+    <section class="grid" id="metrics" hidden>
+      <article class="card">
+        <h2>Время работы</h2>
+        <p class="big" id="uptime">—</p>
+        <p class="hint" id="started">—</p>
+      </article>
+      <article class="card">
+        <h2>Запросов обработано</h2>
+        <p class="big" id="req-total">—</p>
+        <p class="hint">в обработке сейчас: <span id="req-inflight">—</span>, среднее время: <span id="req-avg">—</span></p>
+      </article>
+      <article class="card">
+        <h2>Память процесса</h2>
+        <p class="big" id="mem-rss">—</p>
+        <p class="hint">RSS; heap: <span id="mem-heap">—</span></p>
+        <div class="bar" aria-hidden="true"><span id="mem-bar"></span></div>
+        <svg id="mem-chart" viewBox="0 0 240 48" preserveAspectRatio="none" role="img" aria-label="История использования heap"></svg>
+      </article>
+      <article class="card">
+        <h2>Система</h2>
+        <p class="big" id="sys-load">—</p>
+        <p class="hint">load average 1 / 5 / 15 мин; свободно памяти: <span id="sys-free">—</span></p>
+      </article>
+      <article class="card wide">
+        <h2>Ответы по классам статуса</h2>
+        <table>
+          <thead><tr><th>Класс</th><th>Количество</th><th>Доля</th></tr></thead>
+          <tbody id="status-rows"></tbody>
+        </table>
+      </article>
+    </section>
+  </main>
+
+  <footer>
+    <span id="updated">обновлено: —</span>
+    <label for="interval">период</label>
+    <select id="interval">
+      <option value="5000">5 с</option>
+      <option value="10000" selected>10 с</option>
+      <option value="30000">30 с</option>
+      <option value="0">выкл.</option>
+    </select>
+  </footer>
+
+  <script src="/dashboard/dashboard.js"></script>
+</body>
+</html>

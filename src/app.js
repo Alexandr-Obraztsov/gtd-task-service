@@ -4,6 +4,7 @@ const cookieParser = require('cookie-parser');
 const config = require('./config/env');
 const routes = require('./routes');
 const requestLogger = require('./middleware/requestLogger');
+const metricsCollector = require('./middleware/metricsCollector');
 const corsMiddleware = require('./middleware/cors');
 const requireJson = require('./middleware/requireJson');
 const sanitizeBody = require('./middleware/sanitizeBody');
@@ -32,6 +33,7 @@ function createApp() {
   app.set('json escape', true);
   app.set('x-powered-by', false);
 
+  app.use(metricsCollector);
   app.use(requestLogger);
   app.use(helmet(API_SECURITY_HEADERS));
   app.use(corsMiddleware);

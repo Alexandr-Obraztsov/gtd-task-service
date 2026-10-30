@@ -1,6 +1,7 @@
 const { User } = require('../models');
 const { verifyAccessToken, isTokenExpiredError } = require('../utils/tokens');
 const { UnauthorizedError } = require('../utils/errors');
+const { setSentryUser } = require('../utils/sentry');
 const { SECURITY_EVENTS, reportSuspiciousRequest } = require('../utils/securityEvents');
 
 const BEARER_PATTERN = /^Bearer ([A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+)$/;
@@ -44,6 +45,7 @@ async function authenticate(req, res, next) {
     ip: req.ip,
     request: { method: req.method, path: req.originalUrl, userAgent: req.get('user-agent') },
   };
+  setSentryUser(user.id);
   next();
 }
 

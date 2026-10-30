@@ -27,4 +27,10 @@ const authLimiter = createLimiter({
   skipSuccessfulRequests: true,
 });
 
-module.exports = { globalLimiter, authLimiter };
+const metricsLimiter = createLimiter({
+  name: 'metrics',
+  limit: config.rateLimit.authMax,
+  skipSuccessfulRequests: true,
+});
+
+module.exports = { globalLimiter, authLimiter, metricsLimiter };

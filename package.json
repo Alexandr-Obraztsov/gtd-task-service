@@ -1,17 +1,23 @@
 {
   "name": "gtd-task-service",
-  "version": "1.0.0",
-  "description": "Безопасный REST API сервиса планирования задач по методу GTD (ipr21)",
+  "version": "1.1.0",
+  "description": "Безопасный REST API сервиса планирования задач по методу GTD: деплой, CI/CD и мониторинг (ipr22)",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "seed": "node scripts/seed.js",
     "db:up": "docker compose up -d",
-    "db:down": "docker compose down"
+    "db:down": "docker compose down",
+    "lint": "eslint .",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand",
+    "test:ci": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --ci --coverage"
   },
   "license": "ISC",
   "dependencies": {
+    "@logtail/node": "^0.5.12",
+    "@logtail/winston": "^0.5.12",
+    "@sentry/node": "^11.10.0",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
@@ -31,5 +37,30 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.13.0",
+    "globals": "^17.13.0",
+    "jest": "^30.5.2",
+    "supertest": "^7.3.1"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": [
+      "<rootDir>/tests/**/*.test.js"
+    ],
+    "setupFiles": [
+      "<rootDir>/tests/setup.js"
+    ],
+    "collectCoverageFrom": [
+      "src/**/*.js",
+      "!src/server.js"
+    ],
+    "coverageReporters": [
+      "text-summary",
+      "text"
+    ],
+    "testTimeout": 20000
   }
 }

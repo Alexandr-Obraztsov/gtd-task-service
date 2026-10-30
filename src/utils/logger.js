@@ -1,5 +1,7 @@
 const winston = require('winston');
 require('winston-daily-rotate-file');
+const { Logtail } = require('@logtail/node');
+const { LogtailTransport } = require('@logtail/winston');
 const config = require('../config/env');
 
 const ROTATION_DEFAULTS = Object.freeze({
@@ -33,24 +35,42 @@ function rotatingFile(filePrefix, level) {
   });
 }
 
+const consoleTransport = () => new winston.transports.Console({
+  format: consoleFormat,
+  silent: config.nodeEnv === 'test',
+});
+
+const logtailClient = config.logtail.sourceToken
+  ? new Logtail(config.logtail.sourceToken, config.logtail.endpoint ? { endpoint: config.logtail.endpoint } : {})
+  : null;
+
+function remoteTransports() {
+  return logtailClient ? [new LogtailTransport(logtailClient, { level: 'info' })] : [];
+}
+
 const logger = winston.createLogger({
   level: config.logLevel,
   format: fileFormat,
+  defaultMeta: { service: 'gtd-task-service', release: config.release },
   transports: [
-    new winston.transports.Console({ format: consoleFormat }),
+    consoleTransport(),
     rotatingFile('app', 'info'),
     rotatingFile('error', 'error'),
+    ...remoteTransports(),
   ],
 });
 
 const securityLogger = winston.createLogger({
   level: 'info',
   format: fileFormat,
-  defaultMeta: { channel: 'security' },
-  transports: [
-    new winston.transports.Console({ format: consoleFormat }),
-    rotatingFile('security', 'info'),
-  ],
+  defaultMeta: { service: 'gtd-task-service', release: config.release, channel: 'security' },
+  transports: [consoleTransport(), rotatingFile('security', 'info'), ...remoteTransports()],
 });
 
-module.exports = { logger, securityLogger };
+async function flushLogs() {
+  if (logtailClient) {
+    await logtailClient.flush();
+  }
+}
+
+module.exports = { logger, securityLogger, flushLogs, isRemoteLoggingEnabled: Boolean(logtailClient) };
