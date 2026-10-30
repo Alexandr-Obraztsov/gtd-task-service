@@ -5,6 +5,9 @@ const { logger } = require('../utils/logger');
 const sequelize = new Sequelize(config.databaseUrl, {
   dialect: 'postgres',
   logging: config.isProduction ? false : (sql) => logger.debug(sql),
+  dialectOptions: config.databaseSsl
+    ? { ssl: { require: true, rejectUnauthorized: false } }
+    : {},
   define: {
     underscored: false,
     freezeTableName: false,

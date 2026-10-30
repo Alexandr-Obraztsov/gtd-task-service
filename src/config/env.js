@@ -40,6 +40,22 @@ function readList(name) {
     .filter(Boolean);
 }
 
+function readChoice(name, allowed, fallback) {
+  const raw = (process.env[name] || fallback).toLowerCase();
+  if (!allowed.includes(raw)) {
+    throw new Error(`${name} должен быть одним из: ${allowed.join(', ')}`);
+  }
+  return raw;
+}
+
+function readBoolean(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') {
+    return fallback;
+  }
+  return ['1', 'true', 'yes'].includes(raw.toLowerCase());
+}
+
 const nodeEnv = process.env.NODE_ENV || 'development';
 
 const jwtSecret = readSecret('JWT_SECRET');
@@ -49,12 +65,16 @@ if (jwtSecret === jwtRefreshSecret) {
   throw new Error('JWT_SECRET и JWT_REFRESH_SECRET должны различаться');
 }
 
+// Фронтенд и API на разных доменах: cookie уходит только при SameSite=None; Secure.
+const cookieSameSite = readChoice('COOKIE_SAMESITE', ['strict', 'lax', 'none'], 'strict');
+
 const config = Object.freeze({
   nodeEnv,
   isProduction: nodeEnv === 'production',
   port: readInteger('PORT', 3000),
   trustProxy: readInteger('TRUST_PROXY', 0),
   databaseUrl: readRequired('DATABASE_URL'),
+  databaseSsl: readBoolean('DATABASE_SSL', false),
   corsOrigins: readList('CORS_ORIGINS'),
   bodyLimit: process.env.BODY_LIMIT || '10kb',
   logDir: path.resolve(__dirname, '../..', process.env.LOG_DIR || 'logs'),
@@ -66,6 +86,10 @@ const config = Object.freeze({
     refreshTtlDays: readInteger('JWT_REFRESH_TTL_DAYS', 7),
     issuer: 'gtd-task-service',
     audience: 'gtd-task-service-clients',
+  }),
+  refreshCookie: Object.freeze({
+    sameSite: cookieSameSite,
+    secure: cookieSameSite === 'none' || nodeEnv === 'production',
   }),
   bcryptRounds: readInteger('BCRYPT_ROUNDS', 12),
   lockout: Object.freeze({

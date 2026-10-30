@@ -38,10 +38,17 @@ function ensureScheduledHasDueDate({ status, dueDate }) {
   }
 }
 
-function buildListFilter(ownerId, { status, contextId, dueBefore }) {
+function escapeLike(text) {
+  return text.replace(/[\\%_]/g, '\\$&');
+}
+
+function buildListFilter(ownerId, { status, contextId, dueBefore, q }) {
   const where = pickDefined({ ownerId, status, contextId }, ['ownerId', 'status', 'contextId']);
   if (dueBefore) {
     where.dueDate = { [Op.lte]: dueBefore };
+  }
+  if (q) {
+    where.title = { [Op.iLike]: `%${escapeLike(q)}%` };
   }
   return where;
 }

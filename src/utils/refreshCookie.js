@@ -4,8 +4,8 @@ const REFRESH_COOKIE_NAME = 'refreshToken';
 
 const cookieOptions = Object.freeze({
   httpOnly: true,
-  secure: config.isProduction,
-  sameSite: 'strict',
+  secure: config.refreshCookie.secure,
+  sameSite: config.refreshCookie.sameSite,
   path: '/auth',
 });
 

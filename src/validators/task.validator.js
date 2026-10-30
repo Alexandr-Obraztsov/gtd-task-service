@@ -15,6 +15,7 @@ const list = {
     contextId,
     ownerId: id,
     dueBefore: boundedDate,
+    q: Joi.string().trim().min(1).max(100),
     ...pagination,
   }),
 };

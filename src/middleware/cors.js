@@ -7,7 +7,7 @@ const allowedOrigins = new Set(config.corsOrigins);
 
 const CORS_OPTIONS = Object.freeze({
   credentials: true,
-  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   maxAge: 600,
 });
