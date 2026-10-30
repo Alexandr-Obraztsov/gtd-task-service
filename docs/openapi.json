@@ -1112,11 +1112,74 @@
           }
         ]
       },
+      "put": {
+        "tags": [
+          "Задачи"
+        ],
+        "summary": "Заменить задачу целиком (владелец, admin)",
+        "responses": {
+          "200": {
+            "description": "Задача",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskInput"
+              },
+              "example": {
+                "title": "Подготовить отчёт",
+                "status": "next",
+                "notes": "Полная замена"
+              }
+            }
+          }
+        },
+        "description": "Полное обновление: обязателен title, не переданные поля сбрасываются к значениям по умолчанию."
+      },
       "patch": {
         "tags": [
           "Задачи"
         ],
-        "summary": "Изменить задачу (только владелец)",
+        "summary": "Изменить задачу частично (владелец, admin)",
         "responses": {
           "200": {
             "description": "Задача",
@@ -1177,7 +1240,7 @@
         "tags": [
           "Задачи"
         ],
-        "summary": "Удалить задачу (владелец, admin)",
+        "summary": "Удалить задачу (только admin)",
         "responses": {
           "204": {
             "description": "Удалена"
@@ -1211,7 +1274,8 @@
               "maximum": 2147483647
             }
           }
-        ]
+        ],
+        "description": "Удалять задачи может только администратор, в том числе чужие; остальные роли получают 403 ADMIN_ONLY."
       }
     }
   },

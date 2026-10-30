@@ -237,7 +237,18 @@ GET /tasks?status=next&contextId=4
 
 `200` или 400, 401, 403 `FOREIGN_RESOURCE`, 404.
 
-### PATCH /tasks/:id — владелец
+### PUT /tasks/:id — владелец, admin
+
+Полная замена задачи. Обязателен `title`; не переданные поля (`notes`, `status`,
+`dueDate`, `remindAt`, `contextId`) сбрасываются к значениям по умолчанию.
+
+```json
+{ "title": "Подготовить отчёт", "status": "next", "notes": "Полная замена" }
+```
+
+`200`: обновлённая задача. Ошибки: 400 (нет `title`), 401, 403 `FOREIGN_RESOURCE`, 404.
+
+### PATCH /tasks/:id — владелец, admin
 
 Любое непустое подмножество полей задачи.
 
@@ -247,9 +258,9 @@ GET /tasks?status=next&contextId=4
 
 `200`: обновлённая задача. Ошибки: 400, 401, 403, 404.
 
-### DELETE /tasks/:id — владелец, admin
+### DELETE /tasks/:id — только admin
 
-`204` или 400, 401, 403, 404.
+`204` или 400, 401, 403 `ADMIN_ONLY` (любая роль, кроме admin, включая владельца), 404.
 
 ---
 

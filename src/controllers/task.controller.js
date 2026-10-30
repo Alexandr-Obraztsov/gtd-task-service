@@ -21,9 +21,14 @@ async function update(req, res) {
   res.status(200).json(await taskService.updateTask(req.actor, params.id, body));
 }
 
+async function replace(req, res) {
+  const { params, body } = req.validated;
+  res.status(200).json(await taskService.replaceTask(req.actor, params.id, body));
+}
+
 async function remove(req, res) {
   await taskService.deleteTask(req.actor, req.validated.params.id);
   res.status(204).send();
 }
 
-module.exports = { list, dueReminders, getOne, create, update, remove };
+module.exports = { list, dueReminders, getOne, create, update, replace, remove };

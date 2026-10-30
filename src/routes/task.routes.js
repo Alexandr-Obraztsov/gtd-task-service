@@ -12,6 +12,7 @@ router.get('/', validate(schemas.list), controller.list);
 router.post('/', validate(schemas.create), controller.create);
 router.get('/reminders/due', validate(schemas.dueReminders), controller.dueReminders);
 router.get('/:id', validate(schemas.getOne), controller.getOne);
+router.put('/:id', validate(schemas.replace), controller.replace);
 router.patch('/:id', validate(schemas.update), controller.update);
 router.delete('/:id', validate(schemas.remove), controller.remove);
 

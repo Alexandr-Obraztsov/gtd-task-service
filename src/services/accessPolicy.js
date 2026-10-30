@@ -24,13 +24,13 @@ function reportForeignAccess(actor, details) {
   });
 }
 
-function isPrivileged(actor, action) {
-  const privilegedRole = PRIVILEGED_ROLE_BY_ACTION[action];
+function isPrivileged(actor, action, policy = PRIVILEGED_ROLE_BY_ACTION) {
+  const privilegedRole = policy[action];
   return Boolean(privilegedRole) && hasRole(actor.role, privilegedRole);
 }
 
-function ensureCanAccess(actor, resource, action, resourceType) {
-  if (resource.ownerId === actor.id || isPrivileged(actor, action)) {
+function ensureCanAccess(actor, resource, action, resourceType, policy) {
+  if (resource.ownerId === actor.id || isPrivileged(actor, action, policy)) {
     return;
   }
   reportForeignAccess(actor, { resourceType, resourceId: resource.id, ownerId: resource.ownerId, action });
@@ -48,13 +48,19 @@ function resolveOwnerScope(actor, requestedOwnerId, resourceType) {
   return actor.id;
 }
 
-async function loadAccessible(Model, id, actor, action, resourceType) {
+async function loadAccessible(Model, id, actor, action, resourceType, policy) {
   const resource = await Model.findByPk(id);
   if (!resource) {
     throw new NotFoundError(`Ресурс ${resourceType} с id=${id} не найден`);
   }
-  ensureCanAccess(actor, resource, action, resourceType);
+  ensureCanAccess(actor, resource, action, resourceType, policy);
   return resource;
 }
 
-module.exports = { ACTIONS, ensureCanAccess, resolveOwnerScope, loadAccessible };
+module.exports = {
+  ACTIONS,
+  PRIVILEGED_ROLE_BY_ACTION,
+  ensureCanAccess,
+  resolveOwnerScope,
+  loadAccessible,
+};

@@ -2295,6 +2295,128 @@
           }
         },
         {
+          "name": "Заменить задачу (PUT)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Поля заменены', () => { const t = pm.response.json(); pm.expect(t.title).to.eql('Подготовить отчёт (PUT)'); pm.expect(t.status).to.eql('next'); });",
+                  "pm.test('Не переданные поля сброшены', () => { const t = pm.response.json(); pm.expect(t.dueDate).to.eql(null); pm.expect(t.remindAt).to.eql(null); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tasks/{{taskId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tasks",
+                "{{taskId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Подготовить отчёт (PUT)\",\n  \"status\": \"next\",\n  \"notes\": \"Полная замена\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Заменить задачу: нет title → 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 400', () => pm.response.to.have.status(400));",
+                  "pm.test('Код ошибки VALIDATION_ERROR', () => pm.expect(pm.response.json().error.code).to.eql('VALIDATION_ERROR'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tasks/{{taskId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tasks",
+                "{{taskId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notes\": \"без заголовка\"\n}"
+            }
+          }
+        },
+        {
+          "name": "PUT без токена → 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tasks/{{taskId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tasks",
+                "{{taskId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"x\"\n}"
+            }
+          }
+        },
+        {
           "name": "Удалить задачу: id не число → 400",
           "event": [
             {
@@ -2473,7 +2595,7 @@
           }
         },
         {
-          "name": "Чужая задача: удаление → 403",
+          "name": "Чужая задача: PUT → 403",
           "event": [
             {
               "listen": "test",
@@ -2482,6 +2604,48 @@
                 "exec": [
                   "pm.test('Статус 403', () => pm.response.to.have.status(403));",
                   "pm.test('Код ошибки FOREIGN_RESOURCE', () => pm.expect(pm.response.json().error.code).to.eql('FOREIGN_RESOURCE'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{otherToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tasks/{{taskId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tasks",
+                "{{taskId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"взлом\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Чужая задача: удаление → 403",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 403', () => pm.response.to.have.status(403));",
+                  "pm.test('Код ошибки ADMIN_ONLY', () => pm.expect(pm.response.json().error.code).to.eql('ADMIN_ONLY'));"
                 ]
               }
             }
@@ -2586,7 +2750,7 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('Статус 403', () => pm.response.to.have.status(403));",
-                  "pm.test('Код ошибки FOREIGN_RESOURCE', () => pm.expect(pm.response.json().error.code).to.eql('FOREIGN_RESOURCE'));"
+                  "pm.test('Код ошибки ADMIN_ONLY', () => pm.expect(pm.response.json().error.code).to.eql('ADMIN_ONLY'));"
                 ]
               }
             }
@@ -2645,7 +2809,83 @@
           }
         },
         {
-          "name": "Владелец удаляет свою задачу",
+          "name": "Владелец удаляет свою задачу → 403 (только админ)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 403', () => pm.response.to.have.status(403));",
+                  "pm.test('Код ошибки ADMIN_ONLY', () => pm.expect(pm.response.json().error.code).to.eql('ADMIN_ONLY'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tasks/{{taskId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tasks",
+                "{{taskId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Администратор заменяет чужую задачу (PUT)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Заголовок изменён', () => pm.expect(pm.response.json().title).to.eql('Правка администратора'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tasks/{{taskId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tasks",
+                "{{taskId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Правка администратора\",\n  \"status\": \"next\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Администратор удаляет задачу",
           "event": [
             {
               "listen": "test",
@@ -2662,7 +2902,7 @@
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{accessToken}}"
+                "value": "Bearer {{adminToken}}"
               }
             ],
             "url": {

@@ -50,4 +50,9 @@ const update = {
   }).min(1),
 };
 
-module.exports = { list, dueReminders, getOne, create, update, remove: getOne };
+const replace = {
+  params: idParams,
+  body: create.body,
+};
+
+module.exports = { list, dueReminders, getOne, create, update, replace, remove: getOne };

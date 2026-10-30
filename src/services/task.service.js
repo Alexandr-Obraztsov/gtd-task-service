@@ -3,16 +3,33 @@ const { Task } = require('../models');
 const { TASK_STATUS } = require('../utils/taskStatus');
 const { pickDefined } = require('../utils/object');
 const { toPage } = require('../utils/pagination');
-const { ValidationError } = require('../utils/errors');
-const { ACTIONS, resolveOwnerScope, loadAccessible } = require('./accessPolicy');
+const { ValidationError, ForbiddenError } = require('../utils/errors');
+const { ROLES, hasRole } = require('../utils/roles');
+const {
+  ACTIONS,
+  PRIVILEGED_ROLE_BY_ACTION,
+  resolveOwnerScope,
+  loadAccessible,
+} = require('./accessPolicy');
 const { ensureContextOwnedBy } = require('./context.service');
 
 const RESOURCE_TYPE = 'Task';
 const WRITABLE_FIELDS = Object.freeze(['title', 'notes', 'status', 'dueDate', 'remindAt', 'contextId']);
 const LIST_ORDER = Object.freeze([['dueDate', 'ASC NULLS LAST'], ['id', 'ASC']]);
+const FULL_UPDATE_DEFAULTS = Object.freeze({
+  notes: '',
+  status: TASK_STATUS.INBOX,
+  dueDate: null,
+  remindAt: null,
+  contextId: null,
+});
+const TASK_ACCESS_POLICY = Object.freeze({
+  ...PRIVILEGED_ROLE_BY_ACTION,
+  [ACTIONS.UPDATE]: ROLES.ADMIN,
+});
 
 function loadTask(actor, id, action) {
-  return loadAccessible(Task, id, actor, action, RESOURCE_TYPE);
+  return loadAccessible(Task, id, actor, action, RESOURCE_TYPE, TASK_ACCESS_POLICY);
 }
 
 function ensureScheduledHasDueDate({ status, dueDate }) {
@@ -70,9 +87,24 @@ async function updateTask(actor, id, input) {
   return task.update(changes, { fields: WRITABLE_FIELDS });
 }
 
+function replaceTask(actor, id, input) {
+  return updateTask(actor, id, { ...FULL_UPDATE_DEFAULTS, ...input });
+}
+
 async function deleteTask(actor, id) {
+  if (!hasRole(actor.role, ROLES.ADMIN)) {
+    throw new ForbiddenError('Удалять задачи может только администратор', 'ADMIN_ONLY');
+  }
   const task = await loadTask(actor, id, ACTIONS.DELETE);
   await task.destroy();
 }
 
-module.exports = { listTasks, listDueReminders, getTask, createTask, updateTask, deleteTask };
+module.exports = {
+  listTasks,
+  listDueReminders,
+  getTask,
+  createTask,
+  updateTask,
+  replaceTask,
+  deleteTask,
+};
