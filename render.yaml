@@ -1,0 +1,40 @@
+# Render Blueprint: бэкенд GTD Task Service (Docker, бесплатный план).
+# БД PostgreSQL берётся снаружи (Neon) — строка подключения задаётся в панели Render.
+# Автодеплой выключен: сборку запускает GitHub Actions через Deploy Hook
+# только после успешных lint, тестов и сборки образа.
+services:
+  - type: web
+    name: gtd-task-service
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    region: frankfurt
+    autoDeploy: false
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: "1"
+      - key: DATABASE_SSL
+        value: "true"
+      - key: LOG_LEVEL
+        value: info
+      # --- секреты: значения вводятся вручную в панели Render (sync: false) ---
+      - key: CORS_ORIGINS   # https://<TODO: адрес фронтенда на Vercel>
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      - key: METRICS_TOKEN
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: LOGTAIL_SOURCE_TOKEN
+        sync: false
+      - key: LOGTAIL_ENDPOINT
+        sync: false
