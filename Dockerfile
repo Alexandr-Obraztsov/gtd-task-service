@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1.7
-
 # --- Стадия 1: зависимости (только production, с нативной сборкой bcrypt при необходимости)
 FROM node:24-alpine AS deps
 WORKDIR /app
