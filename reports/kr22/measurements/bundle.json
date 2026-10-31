@@ -1,0 +1,304 @@
+{
+  "path": "/login",
+  "runs_per_variant": 7,
+  "profiles": {
+    "no_throttling": {
+      "without_splitting": {
+        "runs": [
+          {
+            "js_requests": 1,
+            "js_files": [
+              "index-DjyQPaq9.js"
+            ],
+            "js_transfer_bytes": 109192,
+            "fcp_ms": 92
+          },
+          {
+            "js_requests": 1,
+            "js_files": [
+              "index-DjyQPaq9.js"
+            ],
+            "js_transfer_bytes": 109192,
+            "fcp_ms": 36
+          },
+          {
+            "js_requests": 1,
+            "js_files": [
+              "index-DjyQPaq9.js"
+            ],
+            "js_transfer_bytes": 109192,
+            "fcp_ms": 44
+          },
+          {
+            "js_requests": 1,
+            "js_files": [
+              "index-DjyQPaq9.js"
+            ],
+            "js_transfer_bytes": 109192,
+            "fcp_ms": 48
+          },
+          {
+            "js_requests": 1,
+            "js_files": [
+              "index-DjyQPaq9.js"
+            ],
+            "js_transfer_bytes": 109192,
+            "fcp_ms": 64
+          },
+          {
+            "js_requests": 1,
+            "js_files": [
+              "index-DjyQPaq9.js"
+            ],
+            "js_transfer_bytes": 109192,
+            "fcp_ms": 96
+          },
+          {
+            "js_requests": 1,
+            "js_files": [
+              "index-DjyQPaq9.js"
+            ],
+            "js_transfer_bytes": 109192,
+            "fcp_ms": 44
+          }
+        ],
+        "median_js_transfer_bytes": 109192,
+        "median_js_requests": 1,
+        "median_fcp_ms": 48
+      },
+      "with_splitting": {
+        "runs": [
+          {
+            "js_requests": 4,
+            "js_files": [
+              "LoginPage-llhkSBgy.js",
+              "errors-BWbuGBow.js",
+              "index-Zd6u7d5p.js",
+              "jsx-runtime-6lEwaZaY.js"
+            ],
+            "js_transfer_bytes": 108600,
+            "fcp_ms": 48
+          },
+          {
+            "js_requests": 4,
+            "js_files": [
+              "LoginPage-llhkSBgy.js",
+              "errors-BWbuGBow.js",
+              "index-Zd6u7d5p.js",
+              "jsx-runtime-6lEwaZaY.js"
+            ],
+            "js_transfer_bytes": 108600,
+            "fcp_ms": 44
+          },
+          {
+            "js_requests": 4,
+            "js_files": [
+              "LoginPage-llhkSBgy.js",
+              "errors-BWbuGBow.js",
+              "index-Zd6u7d5p.js",
+              "jsx-runtime-6lEwaZaY.js"
+            ],
+            "js_transfer_bytes": 108600,
+            "fcp_ms": 48
+          },
+          {
+            "js_requests": 4,
+            "js_files": [
+              "LoginPage-llhkSBgy.js",
+              "errors-BWbuGBow.js",
+              "index-Zd6u7d5p.js",
+              "jsx-runtime-6lEwaZaY.js"
+            ],
+            "js_transfer_bytes": 108600,
+            "fcp_ms": 48
+          },
+          {
+            "js_requests": 4,
+            "js_files": [
+              "LoginPage-llhkSBgy.js",
+              "errors-BWbuGBow.js",
+              "index-Zd6u7d5p.js",
+              "jsx-runtime-6lEwaZaY.js"
+            ],
+            "js_transfer_bytes": 108600,
+            "fcp_ms": 48
+          },
+          {
+            "js_requests": 4,
+            "js_files": [
+              "LoginPage-llhkSBgy.js",
+              "errors-BWbuGBow.js",
+              "index-Zd6u7d5p.js",
+              "jsx-runtime-6lEwaZaY.js"
+            ],
+            "js_transfer_bytes": 108600,
+            "fcp_ms": 44
+          },
+          {
+            "js_requests": 4,
+            "js_files": [
+              "LoginPage-llhkSBgy.js",
+              "errors-BWbuGBow.js",
+              "index-Zd6u7d5p.js",
+              "jsx-runtime-6lEwaZaY.js"
+            ],
+            "js_transfer_bytes": 108600,
+            "fcp_ms": 56
+          }
+        ],
+        "median_js_transfer_bytes": 108600,
+        "median_js_requests": 4,
+        "median_fcp_ms": 48
+      }
+    },
+    "slow_network_cpu4x": {
+      "without_splitting": {
+        "runs": [
+          {
+            "js_requests": 1,
+            "js_files": [
+              "index-DjyQPaq9.js"
+            ],
+            "js_transfer_bytes": 109192,
+            "fcp_ms": 956
+          },
+          {
+            "js_requests": 1,
+            "js_files": [
+              "index-DjyQPaq9.js"
+            ],
+            "js_transfer_bytes": 109192,
+            "fcp_ms": 952
+          },
+          {
+            "js_requests": 1,
+            "js_files": [
+              "index-DjyQPaq9.js"
+            ],
+            "js_transfer_bytes": 109192,
+            "fcp_ms": 944
+          },
+          {
+            "js_requests": 1,
+            "js_files": [
+              "index-DjyQPaq9.js"
+            ],
+            "js_transfer_bytes": 109192,
+            "fcp_ms": 952
+          },
+          {
+            "js_requests": 1,
+            "js_files": [
+              "index-DjyQPaq9.js"
+            ],
+            "js_transfer_bytes": 109192,
+            "fcp_ms": 972
+          },
+          {
+            "js_requests": 1,
+            "js_files": [
+              "index-DjyQPaq9.js"
+            ],
+            "js_transfer_bytes": 109192,
+            "fcp_ms": 972
+          },
+          {
+            "js_requests": 1,
+            "js_files": [
+              "index-DjyQPaq9.js"
+            ],
+            "js_transfer_bytes": 109192,
+            "fcp_ms": 952
+          }
+        ],
+        "median_js_transfer_bytes": 109192,
+        "median_js_requests": 1,
+        "median_fcp_ms": 952
+      },
+      "with_splitting": {
+        "runs": [
+          {
+            "js_requests": 4,
+            "js_files": [
+              "LoginPage-llhkSBgy.js",
+              "errors-BWbuGBow.js",
+              "index-Zd6u7d5p.js",
+              "jsx-runtime-6lEwaZaY.js"
+            ],
+            "js_transfer_bytes": 108600,
+            "fcp_ms": 932
+          },
+          {
+            "js_requests": 4,
+            "js_files": [
+              "LoginPage-llhkSBgy.js",
+              "errors-BWbuGBow.js",
+              "index-Zd6u7d5p.js",
+              "jsx-runtime-6lEwaZaY.js"
+            ],
+            "js_transfer_bytes": 108600,
+            "fcp_ms": 932
+          },
+          {
+            "js_requests": 4,
+            "js_files": [
+              "LoginPage-llhkSBgy.js",
+              "errors-BWbuGBow.js",
+              "index-Zd6u7d5p.js",
+              "jsx-runtime-6lEwaZaY.js"
+            ],
+            "js_transfer_bytes": 108600,
+            "fcp_ms": 952
+          },
+          {
+            "js_requests": 4,
+            "js_files": [
+              "LoginPage-llhkSBgy.js",
+              "errors-BWbuGBow.js",
+              "index-Zd6u7d5p.js",
+              "jsx-runtime-6lEwaZaY.js"
+            ],
+            "js_transfer_bytes": 108600,
+            "fcp_ms": 928
+          },
+          {
+            "js_requests": 4,
+            "js_files": [
+              "LoginPage-llhkSBgy.js",
+              "errors-BWbuGBow.js",
+              "index-Zd6u7d5p.js",
+              "jsx-runtime-6lEwaZaY.js"
+            ],
+            "js_transfer_bytes": 108600,
+            "fcp_ms": 936
+          },
+          {
+            "js_requests": 4,
+            "js_files": [
+              "LoginPage-llhkSBgy.js",
+              "errors-BWbuGBow.js",
+              "index-Zd6u7d5p.js",
+              "jsx-runtime-6lEwaZaY.js"
+            ],
+            "js_transfer_bytes": 108600,
+            "fcp_ms": 940
+          },
+          {
+            "js_requests": 4,
+            "js_files": [
+              "LoginPage-llhkSBgy.js",
+              "errors-BWbuGBow.js",
+              "index-Zd6u7d5p.js",
+              "jsx-runtime-6lEwaZaY.js"
+            ],
+            "js_transfer_bytes": 108600,
+            "fcp_ms": 928
+          }
+        ],
+        "median_js_transfer_bytes": 108600,
+        "median_js_requests": 4,
+        "median_fcp_ms": 932
+      }
+    }
+  }
+}

@@ -1,0 +1,198 @@
+{
+  "scenario": "ввод слова «позвонить» (9 символов), пауза между нажатиями 100 мс, затем ожидание 1.5 с",
+  "runs_per_mode": 5,
+  "runs": {
+    "without_debounce": [
+      {
+        "debounce": false,
+        "browser_requests_sent": 9,
+        "browser_requests_finished": 9,
+        "browser_requests_cancelled": 0,
+        "axios_tracker_requests": 9,
+        "server_get_requests": 9,
+        "server_preflight_requests": 9,
+        "queries": [
+          "п",
+          "по",
+          "поз",
+          "позв",
+          "позво",
+          "позвон",
+          "позвони",
+          "позвонит",
+          "позвонить"
+        ],
+        "final_total_text": "Всего: 30",
+        "elapsed_s": 2.49
+      },
+      {
+        "debounce": false,
+        "browser_requests_sent": 9,
+        "browser_requests_finished": 9,
+        "browser_requests_cancelled": 0,
+        "axios_tracker_requests": 9,
+        "server_get_requests": 9,
+        "server_preflight_requests": 9,
+        "queries": [
+          "п",
+          "по",
+          "поз",
+          "позв",
+          "позво",
+          "позвон",
+          "позвони",
+          "позвонит",
+          "позвонить"
+        ],
+        "final_total_text": "Всего: 30",
+        "elapsed_s": 2.49
+      },
+      {
+        "debounce": false,
+        "browser_requests_sent": 9,
+        "browser_requests_finished": 9,
+        "browser_requests_cancelled": 0,
+        "axios_tracker_requests": 9,
+        "server_get_requests": 9,
+        "server_preflight_requests": 9,
+        "queries": [
+          "п",
+          "по",
+          "поз",
+          "позв",
+          "позво",
+          "позвон",
+          "позвони",
+          "позвонит",
+          "позвонить"
+        ],
+        "final_total_text": "Всего: 30",
+        "elapsed_s": 2.49
+      },
+      {
+        "debounce": false,
+        "browser_requests_sent": 9,
+        "browser_requests_finished": 9,
+        "browser_requests_cancelled": 0,
+        "axios_tracker_requests": 9,
+        "server_get_requests": 9,
+        "server_preflight_requests": 9,
+        "queries": [
+          "п",
+          "по",
+          "поз",
+          "позв",
+          "позво",
+          "позвон",
+          "позвони",
+          "позвонит",
+          "позвонить"
+        ],
+        "final_total_text": "Всего: 30",
+        "elapsed_s": 2.49
+      },
+      {
+        "debounce": false,
+        "browser_requests_sent": 9,
+        "browser_requests_finished": 9,
+        "browser_requests_cancelled": 0,
+        "axios_tracker_requests": 9,
+        "server_get_requests": 9,
+        "server_preflight_requests": 9,
+        "queries": [
+          "п",
+          "по",
+          "поз",
+          "позв",
+          "позво",
+          "позвон",
+          "позвони",
+          "позвонит",
+          "позвонить"
+        ],
+        "final_total_text": "Всего: 30",
+        "elapsed_s": 2.49
+      }
+    ],
+    "with_debounce": [
+      {
+        "debounce": true,
+        "browser_requests_sent": 1,
+        "browser_requests_finished": 1,
+        "browser_requests_cancelled": 0,
+        "axios_tracker_requests": 1,
+        "server_get_requests": 1,
+        "server_preflight_requests": 1,
+        "queries": [
+          "позвонить"
+        ],
+        "final_total_text": "Всего: 30",
+        "elapsed_s": 2.49
+      },
+      {
+        "debounce": true,
+        "browser_requests_sent": 1,
+        "browser_requests_finished": 1,
+        "browser_requests_cancelled": 0,
+        "axios_tracker_requests": 1,
+        "server_get_requests": 1,
+        "server_preflight_requests": 1,
+        "queries": [
+          "позвонить"
+        ],
+        "final_total_text": "Всего: 30",
+        "elapsed_s": 2.49
+      },
+      {
+        "debounce": true,
+        "browser_requests_sent": 1,
+        "browser_requests_finished": 1,
+        "browser_requests_cancelled": 0,
+        "axios_tracker_requests": 1,
+        "server_get_requests": 1,
+        "server_preflight_requests": 1,
+        "queries": [
+          "позвонить"
+        ],
+        "final_total_text": "Всего: 30",
+        "elapsed_s": 2.48
+      },
+      {
+        "debounce": true,
+        "browser_requests_sent": 1,
+        "browser_requests_finished": 1,
+        "browser_requests_cancelled": 0,
+        "axios_tracker_requests": 1,
+        "server_get_requests": 1,
+        "server_preflight_requests": 1,
+        "queries": [
+          "позвонить"
+        ],
+        "final_total_text": "Всего: 30",
+        "elapsed_s": 2.49
+      },
+      {
+        "debounce": true,
+        "browser_requests_sent": 1,
+        "browser_requests_finished": 1,
+        "browser_requests_cancelled": 0,
+        "axios_tracker_requests": 1,
+        "server_get_requests": 1,
+        "server_preflight_requests": 1,
+        "queries": [
+          "позвонить"
+        ],
+        "final_total_text": "Всего: 30",
+        "elapsed_s": 2.48
+      }
+    ]
+  },
+  "median_server_get_requests": {
+    "without_debounce": 9,
+    "with_debounce": 1
+  },
+  "median_browser_requests": {
+    "without_debounce": 9,
+    "with_debounce": 1
+  }
+}

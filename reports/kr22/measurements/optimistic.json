@@ -1,0 +1,82 @@
+{
+  "emulated_latency_ms_per_request": 300,
+  "runs_per_mode": 5,
+  "runs": {
+    "without_optimistic": [
+      {
+        "optimistic": false,
+        "create_ms": 836,
+        "toggle_ms": 807,
+        "delete_ms": 826
+      },
+      {
+        "optimistic": false,
+        "create_ms": 826,
+        "toggle_ms": 830,
+        "delete_ms": 836
+      },
+      {
+        "optimistic": false,
+        "create_ms": 830,
+        "toggle_ms": 811,
+        "delete_ms": 831
+      },
+      {
+        "optimistic": false,
+        "create_ms": 816,
+        "toggle_ms": 815,
+        "delete_ms": 839
+      },
+      {
+        "optimistic": false,
+        "create_ms": 839,
+        "toggle_ms": 824,
+        "delete_ms": 822
+      }
+    ],
+    "with_optimistic": [
+      {
+        "optimistic": true,
+        "create_ms": 39,
+        "toggle_ms": 36,
+        "delete_ms": 47
+      },
+      {
+        "optimistic": true,
+        "create_ms": 33,
+        "toggle_ms": 35,
+        "delete_ms": 47
+      },
+      {
+        "optimistic": true,
+        "create_ms": 29,
+        "toggle_ms": 39,
+        "delete_ms": 25
+      },
+      {
+        "optimistic": true,
+        "create_ms": 30,
+        "toggle_ms": 43,
+        "delete_ms": 42
+      },
+      {
+        "optimistic": true,
+        "create_ms": 29,
+        "toggle_ms": 33,
+        "delete_ms": 52
+      }
+    ]
+  },
+  "median_ms": {
+    "without_optimistic": {
+      "create_ms": 830,
+      "toggle_ms": 815,
+      "delete_ms": 831
+    },
+    "with_optimistic": {
+      "create_ms": 30,
+      "toggle_ms": 36,
+      "delete_ms": 47
+    }
+  }
+}

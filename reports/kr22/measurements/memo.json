@@ -1,0 +1,230 @@
+{
+  "build": "vite build --mode profiling (react-dom/profiling)",
+  "scenarios": {
+    "type_in_quick_add": "ввод 9 символов в поле «Быстро добавить» при 20 строках списка",
+    "type_in_search": "ввод 9 символов в поле поиска (debounce включён) и загрузка результата"
+  },
+  "runs_per_mode": 5,
+  "runs": {
+    "without_memo": [
+      {
+        "memo": false,
+        "initial_mount": {
+          "renders": 40,
+          "commits": 2,
+          "duration": 4.4999998807907104
+        },
+        "type_in_quick_add": {
+          "renders": 180,
+          "commits": 9,
+          "duration": 25.300000071525574
+        },
+        "type_in_search": {
+          "renders": 240,
+          "commits": 12,
+          "duration": 29.299999475479126
+        }
+      },
+      {
+        "memo": false,
+        "initial_mount": {
+          "renders": 20,
+          "commits": 1,
+          "duration": 3.0999999046325684
+        },
+        "type_in_quick_add": {
+          "renders": 180,
+          "commits": 9,
+          "duration": 25.49999988079071
+        },
+        "type_in_search": {
+          "renders": 240,
+          "commits": 12,
+          "duration": 32.49999988079071
+        }
+      },
+      {
+        "memo": false,
+        "initial_mount": {
+          "renders": 40,
+          "commits": 2,
+          "duration": 6
+        },
+        "type_in_quick_add": {
+          "renders": 180,
+          "commits": 9,
+          "duration": 28.09999990463257
+        },
+        "type_in_search": {
+          "renders": 240,
+          "commits": 12,
+          "duration": 33.19999980926514
+        }
+      },
+      {
+        "memo": false,
+        "initial_mount": {
+          "renders": 20,
+          "commits": 1,
+          "duration": 2.600000023841858
+        },
+        "type_in_quick_add": {
+          "renders": 180,
+          "commits": 9,
+          "duration": 27.899999856948853
+        },
+        "type_in_search": {
+          "renders": 240,
+          "commits": 12,
+          "duration": 32.99999976158142
+        }
+      },
+      {
+        "memo": false,
+        "initial_mount": {
+          "renders": 40,
+          "commits": 2,
+          "duration": 4.100000023841858
+        },
+        "type_in_quick_add": {
+          "renders": 180,
+          "commits": 9,
+          "duration": 27.299999952316284
+        },
+        "type_in_search": {
+          "renders": 240,
+          "commits": 12,
+          "duration": 33.89999985694885
+        }
+      }
+    ],
+    "with_memo": [
+      {
+        "memo": true,
+        "initial_mount": {
+          "renders": 37,
+          "commits": 2,
+          "duration": 4.400000095367432
+        },
+        "type_in_quick_add": {
+          "renders": 0,
+          "commits": 9,
+          "duration": 0.40000009536743164
+        },
+        "type_in_search": {
+          "renders": 20,
+          "commits": 12,
+          "duration": 0.8999998569488525
+        }
+      },
+      {
+        "memo": true,
+        "initial_mount": {
+          "renders": 37,
+          "commits": 2,
+          "duration": 4.799999952316284
+        },
+        "type_in_quick_add": {
+          "renders": 0,
+          "commits": 9,
+          "duration": 0.3999999761581421
+        },
+        "type_in_search": {
+          "renders": 20,
+          "commits": 12,
+          "duration": 2.200000047683716
+        }
+      },
+      {
+        "memo": true,
+        "initial_mount": {
+          "renders": 37,
+          "commits": 2,
+          "duration": 5.5
+        },
+        "type_in_quick_add": {
+          "renders": 0,
+          "commits": 9,
+          "duration": 0.20000004768371582
+        },
+        "type_in_search": {
+          "renders": 20,
+          "commits": 12,
+          "duration": 2.799999952316284
+        }
+      },
+      {
+        "memo": true,
+        "initial_mount": {
+          "renders": 20,
+          "commits": 1,
+          "duration": 2.6999999284744263
+        },
+        "type_in_quick_add": {
+          "renders": 0,
+          "commits": 9,
+          "duration": 0.3999999761581421
+        },
+        "type_in_search": {
+          "renders": 20,
+          "commits": 12,
+          "duration": 3
+        }
+      },
+      {
+        "memo": true,
+        "initial_mount": {
+          "renders": 37,
+          "commits": 2,
+          "duration": 4.800000071525574
+        },
+        "type_in_quick_add": {
+          "renders": 0,
+          "commits": 9,
+          "duration": 0.10000002384185791
+        },
+        "type_in_search": {
+          "renders": 20,
+          "commits": 12,
+          "duration": 2.399999976158142
+        }
+      }
+    ]
+  },
+  "median": {
+    "without_memo": {
+      "initial_mount": {
+        "renders": 40,
+        "commits": 2,
+        "duration": 4.1
+      },
+      "type_in_quick_add": {
+        "renders": 180,
+        "commits": 9,
+        "duration": 27.3
+      },
+      "type_in_search": {
+        "renders": 240,
+        "commits": 12,
+        "duration": 33.0
+      }
+    },
+    "with_memo": {
+      "initial_mount": {
+        "renders": 37,
+        "commits": 2,
+        "duration": 4.8
+      },
+      "type_in_quick_add": {
+        "renders": 0,
+        "commits": 9,
+        "duration": 0.4
+      },
+      "type_in_search": {
+        "renders": 20,
+        "commits": 12,
+        "duration": 2.4
+      }
+    }
+  }
+}

@@ -1,0 +1,40 @@
+# Render Blueprint: веб-сервис Node (API) + PostgreSQL.
+# Деплой: Render Dashboard -> New -> Blueprint -> выбрать репозиторий, ветку kr22.
+databases:
+  - name: gtd-postgres
+    plan: free
+    databaseName: gtd
+    user: gtd
+
+services:
+  - type: web
+    name: gtd-task-service
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: "1"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: gtd-postgres
+          property: connectionString
+      - key: DATABASE_SSL
+        value: "true"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      # Фронтенд на другом домене: cookie refresh-токена уходит только при SameSite=None; Secure.
+      - key: COOKIE_SAMESITE
+        value: none
+      # Заполнить после деплоя фронтенда: https://<проект>.vercel.app (без слеша в конце).
+      - key: CORS_ORIGINS
+        sync: false
