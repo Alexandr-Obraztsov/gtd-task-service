@@ -75,7 +75,7 @@
 { "email": "ivan@example.com", "password": "Str0ng!pass" }
 ```
 
-`200` + cookie `refreshToken` (`HttpOnly; SameSite=Strict; Path=/auth`):
+`200` + cookie `refreshToken` (`HttpOnly; SameSite=Strict; Path=/auth`; при `COOKIE_SAMESITE=none` — `SameSite=None; Secure`):
 
 ```json
 { "user": { "id": 4, "email": "ivan@example.com", "role": "user", "createdAt": "…", "updatedAt": "…" },
@@ -199,7 +199,7 @@ Query: `ownerId`, `limit`, `offset`. `user` видит только свои; `o
 
 ### GET /tasks — любая роль
 
-Query: `status`, `contextId`, `ownerId`, `dueBefore` (ISO 8601), `limit`, `offset`.
+Query: `status`, `contextId`, `ownerId`, `dueBefore` (ISO 8601), `q` (подстрока названия без учёта регистра, 1–100 символов), `limit`, `offset`.
 Правила `ownerId` — как у контекстов. Сортировка: `dueDate` (пустые в конце), затем `id`.
 
 ```

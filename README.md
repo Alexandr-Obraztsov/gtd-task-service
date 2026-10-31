@@ -6,6 +6,84 @@ Backend сервиса планирования задач по методу GTD
 `user` / `moderator` / `admin` и защита от типовых угроз OWASP API Top 10.
 Ветка `kr21` — контрольная работа №1 «Серверная разработка» (ИТиВП, часть 2).
 
+## Контрольная работа №2: клиент, оптимизация, деплой (ветка `kr22`)
+
+К бэкенду добавлен React-клиент `client/` (Vite + React Router + axios). Клиент: вход и
+регистрация, список задач (поиск, фильтр статуса, пагинация), страница задачи, форма
+создания/редактирования (`PUT`), напоминания на главной. Access-токен хранится **в памяти**,
+refresh-токен — в `httpOnly`-cookie; при `401 TOKEN_EXPIRED` клиент один раз обновляет сессию
+и повторяет запрос. Оптимизации: debounce поиска, route-based code splitting
+(`React.lazy` + `Suspense`), `React.memo` для строки списка, оптимистичные
+создание/удаление/отметка, polling напоминаний. Измерения — `reports/kr22/measurements/`,
+скрипты — `reports/kr22/measure/`.
+
+### Быстрый старт (backend + client)
+
+```bash
+# 1. База данных и бэкенд (из корня репозитория)
+docker compose up -d
+cp .env.example .env          # затем вписать JWT_SECRET и JWT_REFRESH_SECRET:
+                              #   openssl rand -hex 32   (два разных значения)
+npm install
+npm run seed                  # пользователи admin/moderator/user из .env (SEED_*)
+npm run seed:demo             # (необязательно) 240 демо-задач для замеров
+npm run dev                   # API на http://localhost:3000 (PORT из .env)
+
+# 2. Клиент (в другом терминале)
+cd client
+cp .env.example .env          # VITE_API_URL=http://localhost:3000
+npm install
+npm run dev                   # http://localhost:5173
+```
+
+Адрес клиента должен входить в `CORS_ORIGINS` бэкенда (по умолчанию `http://localhost:5173`).
+Открывайте клиент как `http://localhost:5173`, а не `127.0.0.1`: cookie с `SameSite=Strict`
+не передаётся между разными «сайтами». Тесты бэкенда: `npm test` (CORS для `PUT`, параметры cookie).
+
+### Переменные окружения
+
+| Где | Переменная | Назначение |
+|---|---|---|
+| backend | `PORT` | порт (на Render задаётся платформой) |
+| backend | `DATABASE_URL`, `DATABASE_SSL` | строка подключения PostgreSQL; `true` для облачной БД с TLS |
+| backend | `JWT_SECRET`, `JWT_REFRESH_SECRET` | подписи токенов, ≥ 32 символов, различные |
+| backend | `CORS_ORIGINS` | белый список источников через запятую (домен фронтенда без `/` в конце) |
+| backend | `COOKIE_SAMESITE` | `strict` (один сайт) или `none` (фронтенд и API на разных доменах; `Secure` включается автоматически) |
+| backend | `NODE_ENV`, `TRUST_PROXY` | `production` и `1` за прокси Render |
+| client | `VITE_API_URL` | базовый URL API; читается при **сборке** |
+
+Переключатели для замеров (только клиент): `?debounce=0`, `?memo=0`, `?optimistic=0` в адресе
+страницы отключают соответствующую оптимизацию.
+
+### Замеры
+
+```bash
+cd client && npm run build:profiling     # сборка с Profiler API → dist-profiling
+cd ../reports/kr22/measure               # Playwright (python), нужны API и vite dev
+python3 measure_debounce.py && python3 measure_optimistic.py
+```
+
+### Деплой
+
+Бэкенд и PostgreSQL — Render (`render.yaml`, Blueprint), фронтенд — Vercel (`client/vercel.json`).
+
+| Что | URL |
+|---|---|
+| Фронтенд (Vercel) | `<TODO: URL фронтенда на Vercel>` |
+| Бэкенд (Render) | `<TODO: URL бэкенда на Render>` |
+
+Порядок (требует аккаунтов владельца):
+
+1. **Render:** New → Blueprint → репозиторий и ветка `kr22`. Blueprint создаёт веб-сервис и БД
+   `gtd-postgres`; `DATABASE_URL`, `JWT_SECRET`, `JWT_REFRESH_SECRET` подставляются автоматически.
+   Значение `CORS_ORIGINS` запросит панель — пока вписать любой временный адрес.
+2. **Vercel:** Import Project → корень `client/` (Framework: Vite). В Settings → Environment
+   Variables задать `VITE_API_URL=<TODO: URL бэкенда на Render>` (для Production и Preview), деплой.
+3. В Render указать `CORS_ORIGINS=<TODO: URL фронтенда на Vercel>` (без слеша) и перезапустить сервис.
+4. Создать демо-пользователей: в Render Shell выполнить `npm run seed` (при необходимости задать `SEED_*`).
+
+Автодеплой: оба сервиса пересобираются при push в подключённую ветку.
+
 ## Контрольная работа №1: соответствие заданию
 
 Основная сущность — **задача** (`Task`: `title`, `notes`, `status`, `dueDate`, `remindAt`,
