@@ -88,7 +88,7 @@ export default function TaskFormPage() {
     setSubmitError(null);
     try {
       const saved = isEdit ? await replaceTask(id, toPayload(form)) : await createTask(toPayload(form));
-      navigate(`/tasks/${saved.id}`);
+      navigate('/tasks/' + saved.id);
     } catch (error) {
       const normalized = normalizeError(error);
       setErrors(fieldErrors(normalized));

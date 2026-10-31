@@ -1,0 +1,697 @@
+\documentclass{stp}
+
+\newcommand{\en}[1]{\textit{#1}}
+
+\begin{document}
+
+\stptitle{
+  вид        = контрольная,
+  номер      = 2,
+  тема       = {Интеграция и оптимизация},
+  дисциплина = {ИТиВП},
+  студент    = {А. С. Образцов},
+  группа     = {320601},
+  преподаватель = {Н. В. Хаджинова},
+}
+
+\section{Цель работы}
+
+Целью контрольной работы является интеграция клиентского приложения на
+\en{React} с серверной частью на \en{Node.js}/\en{Express}, оптимизация
+производительности клиента и подготовка развёртывания в облаке. Предметная
+область --- сервис планирования задач по методу \en{GTD} (\en{Getting Things
+Done}) с контекстами и напоминаниями (вариант~27). Серверная часть
+(\en{REST API} с \en{JWT}, \en{PostgreSQL}, ролями \en{user}, \en{moderator},
+\en{admin}) разработана в контрольной работе~1; в этой работе к ней добавлен
+клиент в папке \en{client/}, а основной сущностью интерфейса является задача
+(\en{Task}): список, страница задачи, форма создания и редактирования.
+
+\section{Ссылка на приложение}
+
+Развёрнутое приложение: фронтенд --- [будет заполнено после развёртывания],
+бэкенд --- [будет заполнено после развёртывания]. Исходный код размещён в
+репозитории
+\en{https://github.com/\allowbreak{}Alexandr-Obraztsov/\allowbreak{}gtd-task-service},
+ветка \en{kr22}. Конфигурации развёртывания (\en{render.yaml},
+\en{client/vercel.json}) подготовлены и описаны в
+подразделе~\ref{sub:deploy}.
+
+\section{Ход работы}
+
+\subsection{Интеграция клиента и сервера}
+
+Клиент создан на \en{Vite} с библиотеками \en{React}, \en{React Router} и
+\en{axios}. Состояние хранится в хуках \en{useState}, \en{useEffect} и
+\en{useReducer}, готовых менеджеров состояния и кэша не используется. Запросы
+к \en{REST API} собраны в отдельный слой \en{src/api}: единый экземпляр
+\en{axios} (\en{http.js}), функции авторизации (\en{auth.js}) и по одной
+функции на операцию с задачами (\en{tasks.js}). Страницы не знают адресов и
+заголовков: они вызывают \en{listTasks}, \en{getTask}, \en{createTask},
+\en{replaceTask} (метод \en{PUT}), \en{patchTask} и \en{deleteTask}.
+Базовый адрес берётся из переменной окружения \en{VITE\_API\_URL}, которую
+\en{Vite} подставляет при сборке.
+
+Маршруты клиента: главная (\en{/}), вход и регистрация (\en{/login},
+\en{/register}), список задач (\en{/tasks}), форма создания
+(\en{/tasks/new}), страница задачи (\en{/tasks/:id}) и форма редактирования
+(\en{/tasks/:id/edit}). Маршруты задач обёрнуты в компонент
+\en{ProtectedRoute}, который отправляет неавторизованного пользователя на
+страницу входа.
+
+\subsection{Сервис \en{axios}, токены и обновление сессии}
+
+\en{Access}"=токен хранится только в памяти модуля, а не в
+\en{localStorage}, поэтому скрипт, прочитавший хранилище, токен не получит:
+
+\begin{stplisting}
+let accessToken = null;
+
+export function getAccessToken() { return accessToken; }
+export function setAccessToken(token) { accessToken = token; }
+export function clearAccessToken() { accessToken = null; }
+\end{stplisting}
+
+\en{Refresh}"=токен сервер кладёт в \en{httpOnly cookie}, клиент его не
+видит; чтобы браузер отправлял \en{cookie} на другой источник, экземпляр
+\en{axios} создаётся с \en{withCredentials}. Перехватчики добавляют заголовок
+\en{Authorization} и при ответе \en{401 TOKEN\_EXPIRED} один раз обновляют
+сессию и повторяют запрос:
+
+\begin{stplisting}
+export const http = axios.create({
+  baseURL: API_URL,
+  withCredentials: true,
+  timeout: 15000,
+});
+
+let refreshPromise = null;
+
+export function refreshSession() {
+  if (!refreshPromise) {
+    refreshPromise = http
+      .post('/auth/refresh', null, { skipAuthRefresh: true })
+      .then(({ data }) => {
+        setAccessToken(data.accessToken);
+        return data;
+      })
+      .finally(() => { refreshPromise = null; });
+  }
+  return refreshPromise;
+}
+
+http.interceptors.request.use((config) => {
+  const token = getAccessToken();
+  if (token) config.headers.Authorization = 'Bearer ' + token;
+  return config;
+});
+
+http.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const { config, response } = error;
+    const expired = response?.status === 401
+      && response.data?.error?.code === 'TOKEN_EXPIRED';
+    if (!expired || !config || config.skipAuthRefresh
+        || config.retried) {
+      return Promise.reject(error);
+    }
+    try {
+      await refreshSession();
+    } catch (refreshError) {
+      clearAccessToken();
+      onSessionExpired();
+      return Promise.reject(error);
+    }
+    return http({ ...config, retried: true });
+  },
+);
+\end{stplisting}
+
+Запрос обновления общий для всех одновременных вызовов
+(\en{refreshPromise}). Это принципиально: сервер считает повторное
+предъявление отозванного \en{refresh}"=токена кражей и отзывает все сессии, а
+\en{React StrictMode} в режиме разработки запускает эффект дважды. После
+перезагрузки страницы провайдер аутентификации вызывает тот же
+\en{refreshSession}, получает новый \en{access}"=токен по \en{cookie} и
+пользователь остаётся в системе:
+
+\begin{stplisting}
+useEffect(() => {
+  setSessionExpiredHandler(() => dispatch({ type: 'anonymous' }));
+  authApi
+    .restoreSession()
+    .then((user) => dispatch({ type: 'authenticated', user }))
+    .catch(() => dispatch({ type: 'anonymous' }));
+}, []);
+\end{stplisting}
+
+Ошибки \en{axios} приводятся к единому виду \en{\{ status, code, message,
+details \}}: ответ сервера, таймаут и отсутствие сети различаются, а ошибки
+валидации \en{Joi} (\en{details}) превращаются в подсказки у полей формы.
+
+\subsection{Список задач: загрузка, ошибка, пустой результат}
+
+Страница списка загружает задачи хуком \en{useTasksList}. Он хранит
+состояние редьюсером (\en{items}, \en{total}, \en{loading}, \en{error}) и
+при смене фильтров отменяет предыдущий запрос через \en{AbortController},
+чтобы устаревший ответ не затёр новый:
+
+\begin{stplisting}
+useEffect(() => {
+  const controller = new AbortController();
+  dispatch({ type: 'load' });
+  tasksApi
+    .listTasks({ q, status, limit, offset }, controller.signal)
+    .then((page) => dispatch({ type: 'loaded', page }))
+    .catch((error) => {
+      if (!isCancelled(error)) {
+        dispatch({ type: 'failed', error: normalizeError(error) });
+      }
+    });
+  return () => controller.abort();
+}, [q, status, limit, offset, reloadKey]);
+\end{stplisting}
+
+Три состояния отображаются явно, в порядке приоритета: ошибка с кнопкой
+повтора, индикатор первой загрузки, пустой список (с разным текстом для
+пустой базы и для пустого результата поиска) и сам список:
+
+\begin{stplisting}
+let body;
+if (error) {
+  body = <ErrorMessage error={error} onRetry={reload} />;
+} else if (loading && items.length === 0) {
+  body = <Spinner label="Загружаем задачи…" />;
+} else if (items.length === 0) {
+  body = filtered
+    ? <EmptyState title="Ничего не найдено" hint="…" />
+    : <EmptyState title="Задач пока нет" hint="…">
+        <Link to="/tasks/new">Создать задачу</Link>
+      </EmptyState>;
+} else {
+  body = (
+    <ul>{items.map((t) => <TaskItem key={t.id} … />)}</ul>
+  );
+}
+\end{stplisting}
+
+При повторной загрузке (смена поиска или страницы) прежний список остаётся на
+экране с пониженной непрозрачностью, поэтому интерфейс не «мигает» индикатором.
+Вид списка представлен на рисунке~\ref{fig:ui-list}, состояние загрузки --- на
+рисунке~\ref{fig:ui-loading}, ошибки --- на рисунке~\ref{fig:ui-error},
+пустого результата --- на рисунке~\ref{fig:ui-empty}. Загрузка получена
+искусственной задержкой ответа списка на 2,5~с, ошибка --- обрывом запроса.
+
+\stpimage[150mm]{img/uiList.png}{Список задач}{fig:ui-list}
+
+\stpimage[150mm]{img/uiLoading.png}{Состояние загрузки списка}{fig:ui-loading}
+
+\stpimage[150mm]{img/uiError.png}{Ошибка загрузки списка с кнопкой повтора}{fig:ui-error}
+
+\stpimage[150mm]{img/uiEmpty.png}{Пустой результат поиска}{fig:ui-empty}
+
+\subsection{Страница задачи и форма}
+
+Страница задачи параллельно запрашивает задачу и список контекстов
+(\en{Promise.all}), чтобы показать имя контекста, а ошибка \en{404}
+отображается без кнопки повтора. Кнопка удаления видна только роли
+\en{admin}, как требует серверная политика. Страница представлена на
+рисунке~\ref{fig:ui-details}.
+
+\stpimage[150mm]{img/uiDetails.png}{Страница задачи}{fig:ui-details}
+
+Одна форма служит и для создания, и для редактирования: при наличии
+параметра \en{id} она загружает задачу и отправляет \en{PUT} (полную замену),
+иначе --- \en{POST}. Перед отправкой выполняется проверка на клиенте, после
+отправки ошибки сервера \en{VALIDATION\_ERROR} раскладываются по полям:
+
+\begin{stplisting}
+function validate(form) {
+  const errors = {};
+  if (!form.title.trim()) errors.title = 'Введите название задачи';
+  if (form.title.length > 200) {
+    errors.title = 'Не более 200 символов';
+  }
+  if (form.status === 'scheduled' && !form.dueDate) {
+    errors.dueDate = 'Для статуса «Запланировано» нужен срок';
+  }
+  return errors;
+}
+
+async function handleSubmit(event) {
+  event.preventDefault();
+  const found = validate(form);
+  setErrors(found);
+  if (Object.keys(found).length > 0) return;
+  setSaving(true);
+  try {
+    const saved = isEdit
+      ? await replaceTask(id, toPayload(form))
+      : await createTask(toPayload(form));
+    navigate('/tasks/' + saved.id);
+  } catch (error) {
+    const normalized = normalizeError(error);
+    setErrors(fieldErrors(normalized));
+    setSubmitError(normalized);
+    setSaving(false);
+  }
+}
+\end{stplisting}
+
+Форма редактирования показана на рисунке~\ref{fig:ui-edit}, ошибка
+проверки (статус <<Запланировано>> без срока) --- на
+рисунке~\ref{fig:ui-forminvalid}, главная страница с напоминаниями ---
+на рисунке~\ref{fig:ui-home}, ответ сервера на неверный пароль --- на
+рисунке~\ref{fig:ui-loginerror}. Скриншоты сняты с работающего
+приложения (\en{vite dev}, \en{API} и \en{PostgreSQL} на локальной машине)
+автоматизированным \en{Chromium}.
+
+\stpimage[150mm]{img/uiEdit.png}{Форма редактирования задачи}{fig:ui-edit}
+
+\stpimage[150mm]{img/uiFormInvalid.png}{Ошибка проверки формы}{fig:ui-forminvalid}
+
+\stpimage[150mm]{img/uiHome.png}{Главная страница с напоминаниями}{fig:ui-home}
+
+\stpimage[150mm]{img/uiLoginError.png}{Вход с неверным паролем}{fig:ui-loginerror}
+
+\subsection{Реализованные оптимизации}
+
+Реализовано четыре разных приёма плюс опрос напоминаний. Для базовых
+замеров каждый приём можно отключить параметром адреса (\en{?debounce=0},
+\en{?memo=0}, \en{?optimistic=0}); значения читает модуль
+\en{perf/flags.js}.
+
+\textbf{Debounce поиска.} Без него каждый введённый символ запускает
+запрос к серверу. Хук возвращает значение с задержкой 400~мс, а запрос
+зависит от задержанного значения:
+
+\begin{stplisting}
+export function useDebouncedValue(value, delay) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
+}
+
+const debouncedSearch = useDebouncedValue(searchInput.trim(), 400);
+const q = flags.debounce ? debouncedSearch : searchInput.trim();
+\end{stplisting}
+
+Поиск выполняет сервер: в \en{GET /tasks} добавлен параметр \en{q} (подстрока
+названия без учёта регистра, спецсимволы \en{LIKE} экранируются).
+
+\textbf{Route-based code splitting.} Каждая страница подключается через
+\en{React.lazy}, \en{Suspense} с индикатором лежит в общем макете вокруг
+\en{Outlet}, поэтому шапка не пропадает во время загрузки чанка:
+
+\begin{stplisting}
+const HomePage = lazy(() => import('./pages/HomePage'));
+const TaskListPage = lazy(() => import('./pages/TaskListPage'));
+const TaskDetailsPage = lazy(
+  () => import('./pages/TaskDetailsPage'));
+const TaskFormPage = lazy(() => import('./pages/TaskFormPage'));
+
+<Suspense fallback={<Spinner label="Загружаем страницу…" />}>
+  <Outlet />
+</Suspense>
+\end{stplisting}
+
+\textbf{\en{React.memo}.} Строка списка обёрнута в \en{memo}, а колбэки
+родителя (\en{create}, \en{remove}, \en{toggleDone}) стабилизированы
+\en{useCallback}. Без этого каждый введённый символ в поле поиска или
+быстрого добавления перерисовывает все 20 строк:
+
+\begin{stplisting}
+function TaskItemView({ task, contextName, canDelete,
+                        onToggle, onRemove }) {
+  countRender('TaskItem');
+  ...
+}
+
+export const TaskItem =
+  flags.memo ? memo(TaskItemView) : TaskItemView;
+\end{stplisting}
+
+\textbf{Оптимистичное обновление} создания, удаления и отметки <<готово>>
+(фрагмент хука \en{useTasksList}). Новая задача появляется в списке сразу
+с пометкой <<сохраняется>>, при ошибке сервера изменение откатывается и
+показывается сообщение:
+
+\begin{stplisting}
+const create = useCallback(async (title) => {
+  tempId.current += 1;
+  const id = 'tmp-' + tempId.current;
+  const draft = { id, title, notes: '', status: 'inbox',
+    dueDate: null, contextId: null, pending: true };
+  dispatch({ type: 'add', task: draft });
+  try {
+    const saved = await tasksApi.createTask({ title });
+    dispatch({ type: 'replace', id, task: saved });
+  } catch (error) {
+    dispatch({ type: 'remove', id });
+    fail(error);
+  }
+}, [fail]);
+
+const remove = useCallback(async (id) => {
+  const index = itemsRef.current.findIndex((t) => t.id === id);
+  const task = itemsRef.current[index];
+  dispatch({ type: 'remove', id });
+  try {
+    await tasksApi.deleteTask(id);
+  } catch (error) {
+    dispatch({ type: 'restore', index, task });
+    fail(error);
+  }
+}, [fail]);
+\end{stplisting}
+
+\textbf{Опрос напоминаний.} На главной странице хук
+\en{useDueReminders} раз в 30~с запрашивает \en{GET /tasks/reminders/due},
+пропускает опрос в скрытой вкладке и при уходе со страницы очищает таймер
+и отменяет запрос.
+
+\subsection{Измерения оптимизаций}
+
+Все измерения выполнены на локальной машине скриптами из папки
+\en{reports/kr22/measure} (\en{Playwright}, \en{Chromium}), сырые данные
+находятся в \en{reports/kr22/measurements}. Каждый сценарий повторён по
+пять (бандл --- семь) раз для каждого варианта, в таблицах указана медиана.
+
+\textbf{Debounce.} Сценарий: в поле поиска вводится слово <<позвонить>>
+(девять символов, 100~мс между нажатиями). Число запросов фиксировалось тремя
+независимыми способами: событиями \en{Chromium} (\en{Network}), счётчиком
+перехватчика \en{axios} и журналом сервера; значения совпали во всех десяти
+прогонах (таблица~\ref{tab:debounce}, рисунок~\ref{fig:chart-debounce}).
+Без \en{debounce} на сервер уходят запросы с \en{q=п}, \en{q=по}, \ldots,
+\en{q=позвонить}; с ним --- один запрос с полным словом. Каждый запрос без
+\en{debounce} дополнительно вызывает предварительный запрос \en{CORS}
+(\en{OPTIONS}), так как адрес у каждого запроса свой.
+
+\begin{stptable}
+  \caption{Запросы \en{GET /tasks?q=} при вводе слова из 9 символов}\label{tab:debounce}
+  \begin{tabularx}{\linewidth}{|X|c|c|}\hline
+    Показатель & Без \en{debounce} & С \en{debounce} 400~мс\\\hline
+    Запросов от браузера & 9 & 1\\\hline
+    Запросов в журнале сервера (\en{GET}) & 9 & 1\\\hline
+    Запросов \en{OPTIONS} (preflight) & 9 & 1\\\hline
+  \end{tabularx}
+\end{stptable}
+
+\stpimage[110mm]{img/chartDebounce.png}{Число запросов поиска до и после \en{debounce} (по данным \en{debounce.json})}{fig:chart-debounce}
+
+\textbf{\en{React.memo}.} Измерение выполнено на \en{profiling}"=сборке
+(\en{vite build --mode profiling}, \en{react-dom/profiling}), так как в
+обычной сборке \en{Profiler} не работает. Число рендеров считает счётчик
+в теле компонента, время --- сумма \en{actualDuration} из \en{React Profiler API}
+по всем коммитам (таблица~\ref{tab:memo}, рисунок~\ref{fig:chart-memo}).
+При вводе в поле быстрого добавления перерисовывается только родитель
+(меняется строка ввода), и с \en{memo} ни одна из 20 строк не
+перерисовывается. При вводе в поиск остаются 20 рендеров --- это
+отображение полученных результатов. Начальная загрузка даёт 40 и 37
+рендеров, потому что после получения списка приходят имена контекстов и
+строки с контекстом получают новое свойство; на эти рендеры \en{memo} не
+влияет. Ненулевое число коммитов с \en{memo} объясняется тем, что сам
+родитель и обёртка \en{Profiler} перерисовываются, а строки --- нет.
+
+\begin{stptable}
+  \caption{Рендеры строки списка и время коммитов (20 строк)}\label{tab:memo}
+  \begin{tabularx}{\linewidth}{|>{\raggedright\arraybackslash}p{48mm}|*{4}{>{\centering\arraybackslash}X|}}\hline
+    Сценарий & Рендеров без \en{memo} & Рендеров с \en{memo} & Время без \en{memo}, мс & Время с \en{memo}, мс\\\hline
+    Ввод 9 символов в быстрое добавление & 180 & 0 & 27,3 & 0,4\\\hline
+    Ввод 9 символов в поиск & 240 & 20 & 33,0 & 2,4\\\hline
+    Первая загрузка списка & 40 & 37 & 4,1 & 4,8\\\hline
+  \end{tabularx}
+\end{stptable}
+
+\stpimage[150mm]{img/chartMemo.png}{Рендеры и время коммитов до и после \en{React.memo} (по данным \en{memo.json})}{fig:chart-memo}
+
+\textbf{Code splitting.} Размер сборки \en{vite build} без разделения
+(все страницы импортируются статически) и с \en{React.lazy}
+(таблица~\ref{tab:bundle}). Вывод \en{vite} сохранён в
+\en{build-baseline.txt} и \en{build-split.txt}. Стартовый код без
+разделения --- один файл 341,05~КБ (109,88~КБ после \en{gzip}); с
+разделением основной файл 276,87~КБ, общий файл \en{React} 47,08~КБ и
+семь файлов страниц размером от 0,29 до 7,21~КБ. Список задач (7,21~КБ)
+и форма (3,73~КБ) не загружаются, пока пользователь на них не перейдёт.
+Загрузка страницы входа с пустым кэшем: переданных байт \en{JavaScript}
+108,6~КБ против 109,2~КБ, первая отрисовка при эмуляции медленной сети
+(1,6~Мбит/с, 150~мс, процессор в 4~раза медленнее) 932~мс против 952~мс.
+Выигрыш на первом экране небольшой (около 0,5\% байт и 2\% времени): страницы
+малы по сравнению с библиотеками (\en{React}, \en{React Router},
+\en{axios}), которые нужны сразу. Приём оправдан для роста приложения:
+каждая новая страница не увеличивает стартовый объём.
+
+\begin{stptable}
+  \caption{Размер \en{JavaScript} без code splitting и с ним}\label{tab:bundle}
+  \begin{tabularx}{\linewidth}{|X|c|c|}\hline
+    Показатель & Без разделения & С \en{React.lazy}\\\hline
+    Файлов \en{JavaScript} в сборке & 1 & 12\\\hline
+    Основной файл, КБ (\en{gzip}) & 341,05 (109,88) & 276,87 (89,94)\\\hline
+    Страница входа: файлов \en{JS} / КБ по сети & 1 / 109,2 & 4 / 108,6\\\hline
+    Первая отрисовка входа, медленная сеть, мс & 952 & 932\\\hline
+    Первая отрисовка входа без ограничений, мс & 48 & 48\\\hline
+  \end{tabularx}
+\end{stptable}
+
+\textbf{Оптимистичное обновление.} Сценарий: под ролью \en{admin} создаётся
+задача, отмечается выполненной и удаляется; задержка сети эмулируется через
+\en{CDP} (300~мс на каждый запрос). Измерялось время от клика до изменения
+в интерфейсе (таблица~\ref{tab:optimistic},
+рисунок~\ref{fig:chart-optimistic}). Без оптимизма интерфейс ждёт ответа
+(более двух кругов обмена из"=за предварительного запроса \en{CORS}),
+с оптимизмом реагирует за один кадр.
+
+\begin{stptable}
+  \caption{Время до изменения интерфейса при задержке сети 300~мс, мс}\label{tab:optimistic}
+  \begin{tabularx}{\linewidth}{|X|c|c|}\hline
+    Операция & Без оптимизма & С оптимизмом\\\hline
+    Создание задачи & 830 & 30\\\hline
+    Отметка <<готово>> & 815 & 36\\\hline
+    Удаление задачи & 831 & 47\\\hline
+  \end{tabularx}
+\end{stptable}
+
+\stpimage[110mm]{img/chartOptimistic.png}{Время реакции интерфейса до и после оптимистичного обновления (по данным \en{optimistic.json})}{fig:chart-optimistic}
+
+\subsection{Подготовка бэкенда к развёртыванию}\label{sub:deploy-backend}
+
+Сервер уже слушал \en{process.env.PORT}, читал \en{DATABASE\_URL},
+\en{JWT\_SECRET}, \en{JWT\_REFRESH\_SECRET} и \en{CORS\_ORIGINS}. При
+подключении клиента найдены и исправлены три проблемы.
+
+\begin{stpnum}
+  \item Список методов \en{CORS} не содержал \en{PUT}: браузер отклонял
+    предварительный запрос на замену задачи. Метод добавлен, проверка
+    вынесена в тест \en{test/cors.test.js} (допустимый источник получает
+    ответ 204~с \en{PUT}, чужой --- 403).
+  \item \en{Refresh}"=\en{cookie} имела \en{SameSite=Strict}: при размещении
+    клиента и \en{API} на разных доменах (\en{Vercel} и \en{Render})
+    браузер её не отправит. Добавлена переменная \en{COOKIE\_SAMESITE}
+    (\en{strict}, \en{lax} или \en{none}); значение \en{none} автоматически
+    включает \en{Secure}, в \en{production} \en{Secure} включён всегда.
+    Поведение проверяют пять тестов \en{test/refreshCookie.test.js}.
+  \item Облачные базы требуют \en{TLS}: добавлена переменная
+    \en{DATABASE\_SSL}, включающая \en{ssl} в \en{Sequelize}.
+\end{stpnum}
+
+\begin{stplisting}
+// src/config/env.js
+const cookieSameSite =
+  readChoice('COOKIE_SAMESITE',
+    ['strict', 'lax', 'none'], 'strict');
+...
+refreshCookie: Object.freeze({
+  sameSite: cookieSameSite,
+  secure: cookieSameSite === 'none' || nodeEnv === 'production',
+}),
+\end{stplisting}
+
+Все семь тестов проходят командой \en{npm test}. Для проверки поиска
+добавлен скрипт \en{npm run seed:demo}, создающий 240 демонстрационных
+задач.
+
+\subsection{Конфигурации развёртывания}\label{sub:deploy}
+
+Подготовлены файлы для развёртывания <<в один клик>> (бэкенд подготовлен в подразделе~\ref{sub:deploy-backend}); сами развёртывания
+на \en{Render} и \en{Vercel} требуют аккаунтов владельца и в рамках этой
+работы не выполнялись. Состояние: [будет заполнено после развёртывания].
+
+Файл \en{render.yaml} (\en{Blueprint}) описывает веб"=сервис \en{Node} и
+базу \en{PostgreSQL}; строка подключения берётся из базы, секреты
+генерирует платформа, а значение \en{CORS\_ORIGINS} задаётся вручную после
+получения адреса фронтенда:
+
+\begin{stplisting}
+databases:
+  - name: gtd-postgres
+    plan: free
+services:
+  - type: web
+    name: gtd-task-service
+    runtime: node
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - { key: NODE_ENV, value: production }
+      - { key: TRUST_PROXY, value: "1" }
+      - { key: DATABASE_SSL, value: "true" }
+      - { key: COOKIE_SAMESITE, value: none }
+      - key: DATABASE_URL
+        fromDatabase: { name: gtd-postgres,
+                        property: connectionString }
+      - { key: JWT_SECRET, generateValue: true }
+      - { key: JWT_REFRESH_SECRET, generateValue: true }
+      - { key: CORS_ORIGINS, sync: false }
+\end{stplisting}
+
+Файл \en{client/vercel.json} включает перенаправление всех путей на
+\en{index.html} (без него обновление страницы \en{/tasks/5} вернуло бы
+\en{404}) и долгое кэширование хешированных файлов:
+
+\begin{stplisting}
+{
+  "framework": "vite",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
+  "headers": [{ "source": "/assets/(.*)", "headers": [
+    { "key": "Cache-Control",
+      "value": "public, max-age=31536000, immutable" }] }]
+}
+\end{stplisting}
+
+Образец переменных клиента находится в \en{client/.env.example}
+(\en{VITE\_API\_URL}), порядок развёртывания --- в разделе <<Деплой>>
+файла \en{README.md}.
+
+\section{Ответы на контрольные вопросы}
+
+\begin{stpnum}
+  \item Интеграция построена на \en{axios} с единым экземпляром
+    (\en{baseURL} из \en{VITE\_API\_URL}, \en{withCredentials},
+    перехватчики), слоем функций \en{src/api} и хуками \en{useEffect},
+    \en{useReducer}. Маршрутизация --- \en{React Router}, сборка ---
+    \en{Vite}. Бэкенд --- \en{REST API} на \en{Express}, обмен в формате
+    \en{JSON}, ошибки приходят в едином виде с кодом.
+  \item Состояния описаны явно в \en{useTasksList} (\en{loading},
+    \en{error}, \en{items}) и выводятся компонентами \en{Spinner},
+    \en{ErrorMessage} с повтором и \en{EmptyState}; код приведён в
+    подразделе <<Список задач>>, экраны --- на
+    рисунках~\ref{fig:ui-loading}, \ref{fig:ui-error} и \ref{fig:ui-empty}.
+    Ошибки валидации формы показываются у полей.
+  \item Реализованы \en{debounce} поиска, \en{route-based code splitting},
+    \en{React.memo} и оптимистичные обновления, а также опрос
+    напоминаний. Выбор обусловлен узкими местами менеджера задач: поиск
+    при вводе порождает лавину запросов, строки списка перерисовываются
+    при каждом нажатии клавиши, а создание и удаление должны отзываться
+    мгновенно при медленной сети. Виртуальная прокрутка не нужна: страница
+    содержит 20 строк.
+  \item Тремя способами: счётчиком запросов (события \en{Chromium},
+    перехватчик \en{axios}, журнал сервера), \en{React Profiler API}
+    на \en{profiling}"=сборке и счётчиком рендеров, выводом \en{vite build}
+    и размерами загрузки по \en{CDP} с эмуляцией сети. Результат:
+    9 запросов против 1, 180 рендеров против 0, реакция 830~мс против
+    30~мс; code splitting дал лишь около 0,5\% байт на первом экране.
+    Скрипты и сырые данные приложены к репозиторию.
+  \item Фронтенд предполагается разместить на \en{Vercel} с корнем
+    \en{client/}: платформа сама определяет \en{Vite}, собирает проект
+    командой \en{npm run build} и перевыпускает его при каждом \en{push}
+    в подключённую ветку. Конфигурация --- \en{client/vercel.json}.
+    Развёртывание: [будет заполнено после развёртывания].
+  \item Бэкенд и база описаны в \en{render.yaml}: веб"=сервис
+    (\en{npm ci}, \en{npm start}, проверка \en{/health}) и \en{PostgreSQL}.
+    Переменные: \en{NODE\_ENV=production}, \en{TRUST\_PROXY=1},
+    \en{DATABASE\_URL}, \en{DATABASE\_SSL=true}, \en{JWT\_SECRET},
+    \en{JWT\_REFRESH\_SECRET}, \en{COOKIE\_SAMESITE=none},
+    \en{CORS\_ORIGINS}; \en{PORT} выдаёт платформа.
+    Развёртывание: [будет заполнено после развёртывания].
+  \item \en{HTTPS} обеспечивают платформы размещения; \en{cookie} с
+    \en{refresh}"=токеном имеет флаги \en{HttpOnly}, \en{Secure} и
+    \en{SameSite=None} (разные домены). \en{CORS} разрешает только
+    источники из \en{CORS\_ORIGINS} вместе с \en{credentials}, чужие
+    получают 403. \en{Access}"=токен живёт 15 минут и хранится только в
+    памяти, \en{refresh}"=токен вращается при каждом обновлении, а его
+    повтор отзывает все сессии. Весь вывод в \en{React} экранируется
+    автоматически, \en{dangerouslySetInnerHTML} не применяется.
+  \item \en{Code splitting} --- разделение кода приложения на части,
+    которые загружаются по мере необходимости, а не одним файлом.
+    \en{React.lazy(() => import('./pages/X'))} превращает динамический
+    импорт в компонент, а \en{Suspense} показывает запасной интерфейс,
+    пока чанк грузится. Сборщик создаёт для каждой страницы отдельный
+    файл (см. таблицу~\ref{tab:bundle}).
+  \item Мемоизация сама стоит памяти и времени на сравнение свойств, поэтому
+    в большом приложении она может не окупаться. Типичные проблемы:
+    новые объекты, массивы и функции в свойствах каждый раз ломают
+    \en{memo}; неполный список зависимостей \en{useMemo} и
+    \en{useCallback} даёт устаревшие значения; мемоизация усложняет код и
+    скрывает настоящие причины лишних рендеров. Применять её нужно после
+    измерения: здесь она оправдана замером (180 рендеров против 0).
+  \item \en{Debounce} откладывает действие до паузы в событиях и
+    выполняет его один раз после последнего (поиск при вводе), а
+    \en{throttle} выполняет действие не чаще одного раза за интервал
+    (прокрутка, изменение размера окна). Для поиска использован
+    \en{debounce}, потому что нужен только итоговый запрос; \en{throttle}
+    в приложении не применён.
+  \item Виртуальная прокрутка (\en{react-window}) создаёт в \en{DOM}
+    только строки, попадающие в окно просмотра, и подменяет их при
+    прокрутке; остальные существуют как данные. Она нужна при тысячах
+    элементов, когда \en{DOM} становится тяжёлым. В работе не применена:
+    список постраничный, по 20 строк.
+  \item Библиотеки кэширования (\en{React Query}, \en{SWR}) не
+    использовались, ручного кэша ответов нет. Косвенно работают
+    \en{Cache-Control: immutable} для файлов сборки на \en{Vercel},
+    кэширование ответа \en{preflight} (600~с) и общий запрос обновления
+    токена. При развитии стоило бы подключить \en{React Query}.
+  \item В \en{Vercel} открывается \en{Settings} $\to$ \en{Environment
+    Variables}, добавляется \en{VITE\_API\_URL} со значением адреса
+    бэкенда без слеша на конце (например,
+    \en{https://gtd-task-service.onrender.com}) для окружений
+    \en{Production} и \en{Preview}, после чего проект пересобирается:
+    переменные \en{Vite} подставляются при сборке, а не во время работы.
+    Доступны только переменные с префиксом \en{VITE\_}, секретов в них
+    хранить нельзя. Значения для этой работы: [будет заполнено после
+    развёртывания].
+  \item Использованы \en{React Profiler API} (компонент \en{Profiler} на
+    \en{profiling}"=сборке), счётчик рендеров, \en{Chromium DevTools
+    Protocol} для эмуляции сети и процессора, события \en{Network} и
+    журнал сервера. Аудит \en{Lighthouse} и расширение \en{React
+    DevTools} в работе не запускались; их заменяют перечисленные
+    программные измерения.
+  \item Оптимистичное обновление применено к созданию, удалению и
+    отметке задачи: интерфейс меняется сразу, запрос идёт в фоне, при
+    ошибке выполняется откат. Фрагмент кода приведён в подразделе
+    <<Реализованные оптимизации>> (функции \en{create} и \en{remove}),
+    эффект --- в таблице~\ref{tab:optimistic}.
+  \item При большем времени: выполнить развёртывание и аудит
+    \en{Lighthouse} на реальных адресах, подключить \en{React Query}
+    для кэша и повторных попыток, добавить виртуальную прокрутку и
+    бесконечную прокрутку, \en{WebSocket} вместо опроса напоминаний,
+    тесты клиента (\en{Vitest}, \en{Testing Library}) и сквозные тесты,
+    вынос \en{refresh}"=токена в схему с защитой от \en{CSRF}
+    (отдельный заголовок), а также режим офлайн.
+\end{stpnum}
+
+\stpunnumbered{Заключение}
+
+В ходе контрольной работы разработан клиент на \en{React} и \en{Vite},
+интегрированный с \en{REST API} сервиса планирования задач по методу
+\en{GTD}: вход и регистрация с \en{JWT} (токен доступа в памяти, обновление
+по \en{httpOnly cookie}), список, страница и форма задачи, явная обработка
+загрузки, ошибок и пустого списка.
+
+Реализованы и измерены четыре оптимизации. \en{Debounce} сократил число
+запросов поиска с 9 до 1, \en{React.memo} --- число рендеров строк с 180 до 0
+при вводе в поле, оптимистичные обновления --- время реакции с 830 до 30~мс
+при задержке сети 300~мс. \en{Code splitting} уменьшил основной файл с 341 до
+277~КБ, но на первом экране выигрыш составил около 0,5\% байт. Бэкенд
+подготовлен к развёртыванию: исправлены \en{CORS} для \en{PUT} и параметры
+\en{cookie} для разных доменов, добавлены тесты, \en{render.yaml} и
+\en{client/vercel.json}. Развёртывание на облачных платформах и ссылки на
+работающее приложение: [будет заполнено после развёртывания].
+
+\end{document}

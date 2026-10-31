@@ -39,7 +39,7 @@ http.interceptors.request.use((config) => {
   trackRequest(config.method ?? 'get', `${config.url}${config.params ? `?${new URLSearchParams(config.params)}` : ''}`);
   const token = getAccessToken();
   if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+    config.headers.Authorization = 'Bearer ' + token;
   }
   return config;
 });

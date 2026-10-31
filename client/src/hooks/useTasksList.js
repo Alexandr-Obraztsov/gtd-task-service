@@ -74,7 +74,7 @@ export function useTasksList({ q, status, limit, offset }) {
         return;
       }
       tempId.current += 1;
-      const id = `tmp-${tempId.current}`;
+      const id = 'tmp-' + tempId.current;
       const draft = { id, title, notes: '', status: 'inbox', dueDate: null, contextId: null, pending: true };
       dispatch({ type: 'add', task: draft });
       try {
