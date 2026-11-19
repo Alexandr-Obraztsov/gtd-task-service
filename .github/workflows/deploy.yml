@@ -158,7 +158,7 @@ jobs:
           TEXT=$(printf '%s · GTD Task Service\nВетка: %s\nКоммит: %s %s\nАвтор: %s\n\nТесты API: %s\nКлиент: %s\nОбразы: %s\nДеплой: %s\n\n%s' \
             "$STATUS" "$GITHUB_REF_NAME" "${GITHUB_SHA:0:7}" "${COMMIT_MSG%%$'\n'*}" "$GITHUB_ACTOR" \
             "$(mark "$R_TEST")" "$(mark "$R_CLIENT")" "$(mark "$R_IMAGES")" "$(mark "$R_DEPLOY")" "$RUN_URL")
-          curl --fail --silent --show-error --max-time 30 \
+          curl --fail --silent --show-error --max-time 30 --retry 4 --retry-delay 5 --retry-all-errors \
             "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
             --data-urlencode "text=${TEXT}" \

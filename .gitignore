@@ -10,3 +10,7 @@ logs/
 ~$*
 reports/**/main.log
 reports/**/main.pdf
+
+# секреты сервера, создаются при развёртывании
+.credentials
+.telegram
