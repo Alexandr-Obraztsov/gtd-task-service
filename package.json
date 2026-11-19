@@ -11,7 +11,8 @@
     "db:down": "docker compose down",
     "lint": "eslint .",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand",
-    "test:ci": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --ci --coverage"
+    "test:ci": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --ci --coverage",
+    "seed:demo": "node scripts/seed-demo.js"
   },
   "license": "ISC",
   "dependencies": {
@@ -33,7 +34,8 @@
     "sequelize": "^6.37.8",
     "swagger-ui-express": "^5.0.1",
     "winston": "^3.19.0",
-    "winston-daily-rotate-file": "^5.0.0"
+    "winston-daily-rotate-file": "^5.0.0",
+    "winston-loki": "^6.1.7"
   },
   "engines": {
     "node": ">=20"
