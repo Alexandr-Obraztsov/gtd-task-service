@@ -268,7 +268,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "avg_over_time({app=\"gtd-task-service\", stream=\"app\"} | json | message=\"http\" | unwrap durationMs [$__interval])",
+          "expr": "avg_over_time({app=\"gtd-task-service\", stream=\"app\"} | json | message=\"http\" | unwrap durationMs [$__interval]) by (app)",
           "legendFormat": "среднее"
         },
         {
@@ -277,7 +277,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "max_over_time({app=\"gtd-task-service\", stream=\"app\"} | json | message=\"http\" | unwrap durationMs [$__interval])",
+          "expr": "max_over_time({app=\"gtd-task-service\", stream=\"app\"} | json | message=\"http\" | unwrap durationMs [$__interval]) by (app)",
           "legendFormat": "максимум"
         }
       ],
