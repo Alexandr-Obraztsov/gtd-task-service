@@ -25,7 +25,7 @@ main() {
   APP_VERSION="$(git rev-parse --short HEAD)"
 
   echo "==> сборка и запуск контейнеров (${APP_VERSION})"
-  "${COMPOSE[@]}" up -d --build --remove-orphans api web
+  "${COMPOSE[@]}" up -d --build --remove-orphans
 
   echo "==> ожидание /health/ready"
   for _ in $(seq 1 40); do

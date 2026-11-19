@@ -140,7 +140,7 @@ services:
       - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on: [loki]
-    mem_limit: 384m
+    mem_limit: 512m
 
 # Подсеть задана явно: стандартные пулы адресов Docker на сервере исчерпаны.
 networks:

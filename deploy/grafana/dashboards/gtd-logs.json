@@ -293,7 +293,7 @@
     },
     {
       "id": 7,
-      "type": "bargauge",
+      "type": "piechart",
       "title": "События безопасности по типу",
       "gridPos": {
         "x": 0,
@@ -318,21 +318,33 @@
         }
       ],
       "options": {
-        "orientation": "horizontal",
-        "displayMode": "basic",
+        "pieType": "donut",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
           ],
           "fields": "",
           "values": false
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "values": [
+            "value"
+          ]
+        },
+        "displayLabels": [
+          "value"
+        ],
+        "tooltip": {
+          "mode": "single"
         }
       },
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "fixed",
-            "fixedColor": "purple"
+            "mode": "palette-classic"
           }
         },
         "overrides": []
