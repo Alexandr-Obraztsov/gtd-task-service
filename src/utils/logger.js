@@ -44,8 +44,37 @@ const logtailClient = config.logtail.sourceToken
   ? new Logtail(config.logtail.sourceToken, config.logtail.endpoint ? { endpoint: config.logtail.endpoint } : {})
   : null;
 
-function remoteTransports() {
-  return logtailClient ? [new LogtailTransport(logtailClient, { level: 'info' })] : [];
+// Grafana Loki на собственном сервере: включается переменной LOKI_URL.
+// Метка stream разделяет журнал приложения (app) и журнал безопасности (security).
+function lokiTransport(stream) {
+  if (!config.loki.url || config.nodeEnv === 'test') {
+    return null;
+  }
+  const LokiTransport = require('winston-loki');
+  return new LokiTransport({
+    host: config.loki.url,
+    labels: { app: 'gtd-task-service', env: config.nodeEnv, stream },
+    json: true,
+    format: fileFormat,
+    batching: true,
+    interval: 5,
+    replaceTimestamp: true,
+    level: 'info',
+    // eslint-disable-next-line no-console
+    onConnectionError: (error) => console.error('loki_connection_error', error && error.message),
+  });
+}
+
+function remoteTransports(stream) {
+  const transports = [];
+  if (logtailClient) {
+    transports.push(new LogtailTransport(logtailClient, { level: 'info' }));
+  }
+  const loki = lokiTransport(stream);
+  if (loki) {
+    transports.push(loki);
+  }
+  return transports;
 }
 
 const logger = winston.createLogger({
@@ -56,7 +85,7 @@ const logger = winston.createLogger({
     consoleTransport(),
     rotatingFile('app', 'info'),
     rotatingFile('error', 'error'),
-    ...remoteTransports(),
+    ...remoteTransports('app'),
   ],
 });
 
@@ -64,7 +93,7 @@ const securityLogger = winston.createLogger({
   level: 'info',
   format: fileFormat,
   defaultMeta: { service: 'gtd-task-service', release: config.release, channel: 'security' },
-  transports: [consoleTransport(), rotatingFile('security', 'info'), ...remoteTransports()],
+  transports: [consoleTransport(), rotatingFile('security', 'info'), ...remoteTransports('security')],
 });
 
 async function flushLogs() {
@@ -73,4 +102,6 @@ async function flushLogs() {
   }
 }
 
-module.exports = { logger, securityLogger, flushLogs, isRemoteLoggingEnabled: Boolean(logtailClient) };
+const isRemoteLoggingEnabled = Boolean(logtailClient) || Boolean(config.loki.url);
+
+module.exports = { logger, securityLogger, flushLogs, isRemoteLoggingEnabled };

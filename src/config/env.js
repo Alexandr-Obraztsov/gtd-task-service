@@ -81,10 +81,13 @@ const config = Object.freeze({
   bodyLimit: process.env.BODY_LIMIT || '10kb',
   logDir: path.resolve(__dirname, '../..', process.env.LOG_DIR || 'logs'),
   logLevel: process.env.LOG_LEVEL || (nodeEnv === 'production' ? 'info' : 'debug'),
-  release: readOptional('RELEASE') || readOptional('RENDER_GIT_COMMIT') || 'local',
+  release: readOptional('RELEASE') || readOptional('APP_VERSION') || readOptional('RENDER_GIT_COMMIT') || 'local',
   logtail: Object.freeze({
     sourceToken: readOptional('LOGTAIL_SOURCE_TOKEN'),
     endpoint: readOptional('LOGTAIL_ENDPOINT'),
+  }),
+  loki: Object.freeze({
+    url: readOptional('LOKI_URL'),
   }),
   sentry: Object.freeze({
     dsn: readOptional('SENTRY_DSN'),
