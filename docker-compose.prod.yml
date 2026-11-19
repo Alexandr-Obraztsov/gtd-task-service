@@ -96,7 +96,7 @@ services:
       SERVER_ROLE: all_in_one   # веб, воркер и планировщик в одном процессе
       VALKEY_URL: ""            # без Redis: очередь и кеш хранятся в PostgreSQL
       GRANIAN_WORKERS_MAX_RSS: "400"
-      ALLOWED_HOSTS: errors.${APP_DOMAIN},localhost,127.0.0.1
+      ALLOWED_HOSTS: errors.${APP_DOMAIN},glitchtip,localhost,127.0.0.1   # glitchtip — приём ошибок API по внутренней сети
       SECRET_KEY: ${GLITCHTIP_SECRET_KEY}
       GLITCHTIP_DOMAIN: https://errors.${APP_DOMAIN}
       DEFAULT_FROM_EMAIL: glitchtip@${APP_DOMAIN}
