@@ -62,6 +62,7 @@ async function ensureTelegram() {
 }
 
 socket.once('connect', async () => {
+  console.log('connected');
   try {
     if (await new Promise((r) => socket.emit('needSetup', r))) {
       await call('setup', process.env.KUMA_USER, process.env.KUMA_PASS);
