@@ -14,3 +14,6 @@ reports/**/main.pdf
 # секреты сервера, создаются при развёртывании
 .credentials
 .telegram
+reports/**/report.tex
+reports/**/report.log
+reports/**/report.pdf
