@@ -15,6 +15,7 @@ process.env.RATE_LIMIT_MAX = '1000';
 process.env.AUTH_RATE_LIMIT_MAX = '50';
 process.env.SENTRY_DSN = '';
 process.env.LOGTAIL_SOURCE_TOKEN = '';
+process.env.LOKI_URL = '';
 
 if (process.env.TEST_DATABASE_URL) {
   process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;

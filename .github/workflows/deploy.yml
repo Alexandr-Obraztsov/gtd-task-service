@@ -1,17 +1,17 @@
 name: CI/CD
 
-# Полный цикл запускается при push в main и вручную. Для pull request
-# выполняются только проверки (lint, тесты, сборка образа) — без деплоя.
+# Каждый push и pull request проходит линтинг, тесты и сборку образов.
+# Push в main, ipr22 и ipr22-vps дополнительно разворачивается на VPS.
+# Итог любого push отправляется в Telegram.
 on:
   push:
-    branches: [main]
+    branches: [main, ipr22, ipr22-vps]
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:
   group: ci-cd-${{ github.ref }}
-  # отменяем устаревшие проверки pull request, но не прерываем начатый деплой
+  # устаревшие проверки PR отменяются, начатый деплой не прерывается
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -19,10 +19,12 @@ permissions:
 
 env:
   NODE_VERSION: '24'
+  APP_URL: https://gtd.cloudyyy.tech
+  API_URL: https://api.gtd.cloudyyy.tech
 
 jobs:
   test:
-    name: Lint и тесты
+    name: API — ESLint и тесты
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -39,7 +41,7 @@ jobs:
           --health-timeout 3s
           --health-retries 10
     env:
-      # Значения только для тестового прогона в изолированном контейнере CI.
+      # Значения только для тестового прогона в изолированном контейнере CI
       DATABASE_URL: postgres://gtd:gtd_ci_password@127.0.0.1:5432/gtd_test
     steps:
       - uses: actions/checkout@v4
@@ -54,135 +56,111 @@ jobs:
       - name: Тесты (Jest + supertest)
         run: npm run test:ci
 
-  docker:
-    name: Сборка Docker-образа
+  client:
+    name: Клиент — сборка Vite
     runs-on: ubuntu-latest
-    needs: test
+    defaults:
+      run:
+        working-directory: client
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - name: Сборка образа (без публикации)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: false
-          load: true
-          tags: gtd-task-service:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      - name: Проверка запуска контейнера
-        run: |
-          docker image inspect "gtd-task-service:${GITHUB_SHA}" --format 'Размер образа: {{.Size}} байт'
-          docker run --rm --entrypoint node "gtd-task-service:${GITHUB_SHA}" -e "console.log('node', process.version, 'ok')"
-
-  deploy-backend:
-    name: Деплой бэкенда (Render)
-    runs-on: ubuntu-latest
-    needs: [test, docker]
-    if: github.event_name != 'pull_request'
-    environment: production
-    env:
-      RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
-      PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
-    steps:
-      - name: Запуск деплоя через Render Deploy Hook
-        if: env.RENDER_DEPLOY_HOOK_URL != ''
-        run: |
-          curl --fail --silent --show-error --max-time 30 -X POST "$RENDER_DEPLOY_HOOK_URL" > /dev/null
-          echo "Деплой на Render запущен"
-      - name: Деплой пропущен (секрет RENDER_DEPLOY_HOOK_URL не задан)
-        if: env.RENDER_DEPLOY_HOOK_URL == ''
-        run: echo "::notice::Секрет RENDER_DEPLOY_HOOK_URL не задан — деплой пропущен"
-      - name: Проверка работоспособности после деплоя (/health)
-        if: env.RENDER_DEPLOY_HOOK_URL != '' && env.PRODUCTION_URL != ''
-        run: |
-          # Бесплатный план Render собирает образ несколько минут и «просыпается» до минуты.
-          for attempt in $(seq 1 30); do
-            if curl --fail --silent --max-time 15 "${PRODUCTION_URL%/}/health" | grep -q '"status":"ok"'; then
-              echo "Сервис отвечает (попытка $attempt)"
-              exit 0
-            fi
-            echo "Сервис пока не отвечает, попытка $attempt из 30"
-            sleep 20
-          done
-          echo "::error::Сервис не ответил на /health за 10 минут"
-          exit 1
-
-  deploy-frontend:
-    name: Деплой фронтенда (Vercel)
-    runs-on: ubuntu-latest
-    needs: test
-    if: github.event_name != 'pull_request'
-    environment: production
-    env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-      VITE_API_URL: ${{ vars.PRODUCTION_URL }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Проверка наличия клиента и секретов
-        id: gate
-        run: |
-          if [ ! -f client/package.json ]; then
-            echo "::notice::Папки client/ нет в этой ветке — деплой фронтенда пропущен"
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          elif [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
-            echo "::notice::Секреты VERCEL_* не заданы — деплой фронтенда пропущен"
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          fi
       - uses: actions/setup-node@v4
-        if: steps.gate.outputs.run == 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: client/package-lock.json
-      - name: Установка Vercel CLI
-        if: steps.gate.outputs.run == 'true'
-        run: npm install --global vercel@latest
-      - name: Получение настроек проекта Vercel
-        if: steps.gate.outputs.run == 'true'
-        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+      - name: Установка зависимостей
+        run: npm ci
       - name: Сборка
-        if: steps.gate.outputs.run == 'true'
-        run: vercel build --prod --token="$VERCEL_TOKEN"
-      - name: Выгрузка в продакшен
-        if: steps.gate.outputs.run == 'true'
-        run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+        run: npm run build
+        env:
+          VITE_API_URL: ${{ env.API_URL }}
+
+  images:
+    name: Сборка Docker-образов
+    runs-on: ubuntu-latest
+    needs: [test, client]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Сборка образов api и web из docker-compose.prod.yml
+        run: docker compose -f docker-compose.prod.yml build api web
+        env:
+          APP_DOMAIN: gtd.cloudyyy.tech
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+      - name: Проверка запуска образа API
+        run: docker run --rm --entrypoint node gtd-prod-api -e "require('winston-loki'); console.log('node', process.version, 'ok')"
+
+  deploy:
+    name: Деплой на VPS
+    runs-on: ubuntu-latest
+    needs: [images]
+    if: >-
+      github.event_name == 'push' &&
+      contains(fromJSON('["main","ipr22","ipr22-vps"]'), github.ref_name)
+    environment:
+      name: production
+      url: https://gtd.cloudyyy.tech
+    env:
+      SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+    steps:
+      - name: Деплой пропущен (секрет VPS_SSH_KEY не задан)
+        if: env.SSH_KEY == ''
+        run: echo "::notice::Секрет VPS_SSH_KEY не задан — деплой пропущен"
+
+      # Ключ может выполнить на сервере только deploy/deploy.sh (forced command в authorized_keys)
+      - name: Деплой по SSH
+        if: env.SSH_KEY != ''
+        env:
+          KNOWN_HOSTS: ${{ vars.VPS_KNOWN_HOSTS }}
+          HOST: ${{ vars.VPS_HOST }}
+          PORT: ${{ vars.VPS_PORT }}
+          USER: ${{ vars.VPS_USER }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key -p "$PORT" -o StrictHostKeyChecking=yes "$USER@$HOST" "deploy ${GITHUB_REF_NAME}"
+
+      - name: Проверка по HTTPS
+        if: env.SSH_KEY != ''
+        run: |
+          curl -fsS --retry 5 --retry-delay 5 --retry-all-errors "$API_URL/health/ready"; echo
+          curl -fsS -o /dev/null -w "frontend: %{http_code}\n" "$APP_URL/"
 
   notify:
     name: Уведомление в Telegram
     runs-on: ubuntu-latest
-    needs: [test, docker, deploy-backend, deploy-frontend]
-    if: always()
+    needs: [test, client, images, deploy]
+    if: always() && github.event_name == 'push'
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      RESULTS: ${{ join(needs.*.result, ' ') }}
-      REPO: ${{ github.repository }}
-      REF_NAME: ${{ github.ref_name }}
-      SHA: ${{ github.sha }}
-      ACTOR: ${{ github.actor }}
+      TELEGRAM_CHAT_ID: ${{ vars.TELEGRAM_CHAT_ID }}
+      COMMIT_MSG: ${{ github.event.head_commit.message }}
+      R_TEST: ${{ needs.test.result }}
+      R_CLIENT: ${{ needs.client.result }}
+      R_IMAGES: ${{ needs.images.result }}
+      R_DEPLOY: ${{ needs.deploy.result }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
-      - name: Отправка статуса сборки
-        if: env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
+      - name: Отправка итога сборки
         run: |
-          case " $RESULTS " in
-            *" failure "*)   STATUS="ПРОВАЛ" ;;
-            *" cancelled "*) STATUS="ОТМЕНЕНА" ;;
-            *)               STATUS="УСПЕХ" ;;
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "::notice::Telegram не настроен — уведомление пропущено"; exit 0
+          fi
+          case " $R_TEST $R_CLIENT $R_IMAGES $R_DEPLOY " in
+            *" failure "*)   STATUS="🔴 Сборка упала" ;;
+            *" cancelled "*) STATUS="⚪ Сборка отменена" ;;
+            *)               STATUS="🟢 Сборка прошла" ;;
           esac
-          TEXT=$(printf 'Сборка GTD Task Service: %s\nРепозиторий: %s\nВетка: %s\nКоммит: %s\nАвтор: %s\nРезультаты задач: %s\n%s' \
-            "$STATUS" "$REPO" "$REF_NAME" "${SHA:0:7}" "$ACTOR" "$RESULTS" "$RUN_URL")
-          curl --fail --silent --show-error --max-time 30 \
+          mark() { case "$1" in success) echo "✔";; skipped) echo "—";; *) echo "✘ $1";; esac; }
+          TEXT=$(printf '%s · GTD Task Service\nВетка: %s\nКоммит: %s %s\nАвтор: %s\n\nТесты API: %s\nКлиент: %s\nОбразы: %s\nДеплой: %s\n\n%s' \
+            "$STATUS" "$GITHUB_REF_NAME" "${GITHUB_SHA:0:7}" "${COMMIT_MSG%%$'\n'*}" "$GITHUB_ACTOR" \
+            "$(mark "$R_TEST")" "$(mark "$R_CLIENT")" "$(mark "$R_IMAGES")" "$(mark "$R_DEPLOY")" "$RUN_URL")
+          curl --fail --silent --show-error --max-time 30 --retry 4 --retry-delay 5 --retry-all-errors \
             "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
             --data-urlencode "text=${TEXT}" \
             --data-urlencode "disable_web_page_preview=true" > /dev/null
           echo "Уведомление отправлено: $STATUS"
-      - name: Уведомление пропущено (секреты Telegram не заданы)
-        if: env.TELEGRAM_BOT_TOKEN == '' || env.TELEGRAM_CHAT_ID == ''
-        run: echo "::notice::TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID не заданы — уведомление пропущено"

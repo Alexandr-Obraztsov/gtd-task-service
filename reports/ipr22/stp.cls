@@ -13,9 +13,23 @@
 \RequirePackage{unicode-math}
 %% СТП допускает только Times New Roman — подмены шрифта нет
 \IfFontExistsTF{Times New Roman}
-  {\setmainfont{Times New Roman}}
+  {\setmainfont{Times New Roman}[Ligatures=TeX]}
   {\ClassError{stp}{Шрифт Times New Roman не найден в системе}%
     {СТП 2.1.1 допускает только Times New Roman. Установите шрифт в систему.}}
+%% Кириллица явным семейством. macOS-версия Times New Roman объявляет
+%% OpenType-скрипт `cyrl`, а версия из msttcorefonts (Linux, контейнер) — нет:
+%% глифы в ней есть, тега нет, и polyglossia останавливает сборку с
+%% «The current latin font ... does not contain the "Cyrillic" script».
+%% Явный \cyrillicfont — то, что polyglossia в этом сообщении и просит;
+%% шрифт тот же самый, так что на macOS строка ничего не меняет.
+\newfontfamily\cyrillicfont{Times New Roman}[Ligatures=TeX]
+%% То же для \textsf и \texttt. Без этих двух строк любое \texttt{...} рядом с
+%% кириллицей роняет сборку с тем же сообщением polyglossia: моноширинный по
+%% умолчанию (Latin Modern Mono) кириллицы не содержит. СТП всё равно не
+%% допускает других гарнитур, кроме Times New Roman, так что подставляется она.
+\newfontfamily\cyrillicfontsf{Times New Roman}[Ligatures=TeX]
+\newfontfamily\cyrillicfonttt{Times New Roman}[Ligatures=TeX]
+
 %% математический шрифт, метрически близкий к Times
 \IfFontExistsTF{texgyretermes-math.otf}
   {\setmathfont{texgyretermes-math.otf}}
@@ -181,7 +195,8 @@
 \setlength{\cftbeforesubsecskip}{0pt}
 \newcommand{\stptoc}{\clearpage
   \renewcommand{\contentsname}{СОДЕРЖАНИЕ}%
-  \tableofcontents\clearpage}
+  %% страницы содержания входят в нумерацию, но номер не печатают
+  \pagestyle{stpempty}\tableofcontents\clearpage\pagestyle{plain}}
 
 %% ------------------------------------------------- подписи рисунков/таблиц
 %% рисунок/таблица отделяются от текста одной пробельной строкой
@@ -225,7 +240,7 @@
   {\par\removelastskip\addvspace{18bp}\def\@captype{table}%
    \noindent\begin{minipage}{\textwidth}%
    %% вне float caption не подхватывает глобальные настройки — задаём локально
-   \captionsetup{justification=raggedright,singlelinecheck=false,format=hang}%
+   \captionsetup{justification=raggedright,singlelinecheck=false,format=hang,position=above,skip=2bp}%
    \setlength{\parindent}{0pt}\raggedright}
   {\end{minipage}\par\addvspace{18bp}\global\stp@spacedtrue}
 
@@ -281,7 +296,7 @@
    \stp@require{\stplt@head}{головка}%
    \stp@require{\stplt@n}{граф}%
    \stplt@buildnum
-   \captionsetup{justification=raggedright,singlelinecheck=false,format=hang}%
+   \captionsetup{justification=raggedright,singlelinecheck=false,format=hang,position=above,skip=2bp}%
    \setlength{\LTleft}{0pt}\setlength{\LTright}{\fill}%
    \setlength{\LTcapwidth}{\textwidth}%
    \setlength{\parindent}{0pt}%
@@ -307,8 +322,9 @@
    \vspace{8bp}%
    \VerbatimEnvironment
    \begin{Verbatim}[fontfamily=\rmdefault,fontshape=it,%
-                    fontsize=\fontsize{14bp}{16bp}\selectfont,%
-                    xleftmargin=0pt,samepage=false]}
+                    fontsize=\fontsize{14bp}{18bp}\selectfont,%
+                    xleftmargin=0pt,samepage=false,
+                    formatcom=\addfontfeatures{Mapping=}]}
   {\end{Verbatim}\vspace{6bp}\global\stp@spacedtrue\par}
 
 %% ------------------------------------------------------------ перечисления
@@ -394,16 +410,19 @@
 \RequirePackage{xkeyval}
 
 \def\stp@vid{}      \def\stp@disc{}   \def\stp@num{}    \def\stp@tema{}
+\def\stp@lblvyp{Выполнил}\def\stp@lblstud{студент}\def\stp@lblprov{Принял}
 \def\stp@stud{}     \def\stp@grp{}    \def\stp@ruk{}    \def\stp@rukdolzh{}
 \def\stp@oboz{}     \def\stp@dopusk{} \def\stp@vidtext{}
 \def\stp@vidvin{}
-\def\stp@labkind{по лабораторной работе}
 
 \define@key{stptitle}{вид}{\def\stp@vid{#1}}
 \define@key{stptitle}{дисциплина}{\def\stp@disc{#1}}
 \define@key{stptitle}{номер}{\def\stp@num{#1}}
 \define@key{stptitle}{тема}{\def\stp@tema{#1}}
 \define@key{stptitle}{студент}{\def\stp@stud{#1}}
+\define@key{stptitle}{выполнил}{\def\stp@lblvyp{#1}}
+\define@key{stptitle}{статус}{\def\stp@lblstud{#1}}
+\define@key{stptitle}{проверил}{\def\stp@lblprov{#1}}
 \define@key{stptitle}{группа}{\def\stp@grp{#1}}
 \define@key{stptitle}{руководитель}{\def\stp@ruk{#1}}
 \define@key{stptitle}{преподаватель}{\def\stp@ruk{#1}}
@@ -456,7 +475,7 @@
   \vfill
   \begin{center}\stp@gorod{} \stp@god\end{center}}
 
-%% ---------- отчёт по лабораторной работе (форма кафедры)
+%% ---------- отчёт по лабораторной или практической работе (форма кафедры)
 \newcommand{\stp@title@lab}{%
   \stp@require{\stp@num}{номер}%
   \stp@require{\stp@disc}{дисциплина}%
@@ -466,7 +485,7 @@
   \vspace{\stretch{2}}
   \begin{center}
     ОТЧЕТ\par
-    \stp@labkind{} №\,\stp@num\par
+    по \stp@worktype{} работе №\,\stp@num\par
     \vspace{\baselineskip}
     по дисциплине\par
     «\stp@disc»\par
@@ -476,10 +495,10 @@
     \fi
   \end{center}
   \vspace{\stretch{3}}
-  \stpsig{Выполнил:}{студент группы \stp@grp\\ \stp@stud}
+  \stpsig{\stp@lblvyp:}{\stp@lblstud{} группы \stp@grp\\ \stp@stud}
   \vspace{2\baselineskip}
   \ifx\stp@ruk\@empty\else
-    \stpsig{Проверила:}{\ifx\stp@rukdolzh\@empty\else\stp@rukdolzh\\ \fi\stp@ruk}
+    \stpsig{\stp@lblprov:}{\ifx\stp@rukdolzh\@empty\else\stp@rukdolzh\\ \fi\stp@ruk}
   \fi
   \vspace{\stretch{2}}
   \begin{center}\stp@gorod{} \stp@god\end{center}}
@@ -651,22 +670,20 @@
   \restoregeometry
   \endgroup}
 
-%% \stptitle{вид = лабораторная | курсовая, поле = значение, ...}
+%% \stptitle{вид = лабораторная | практическая | контрольная | курсовая, поле = значение, ...}
 \newcommand{\stptitle}[1]{%
   \clearpage\stpnonumber
   \begingroup
   \setkeys{stptitle}{#1}%
   \setlength{\parindent}{0pt}%
   \stpragged
-  \def\stp@l{лабораторная}\def\stp@k{курсовая}\def\stp@p{практическая}\def\stp@c{контрольная}%
-  \ifx\stp@vid\stp@p \gdef\stp@labkind{по индивидуальной практической работе}%
-    \gdef\stp@vidtext{отчёт по индивидуальной практической работе}%
-    \gdef\stp@vidvin{отчёт по индивидуальной практической работе}\stp@title@lab
-  \else\ifx\stp@vid\stp@c \gdef\stp@labkind{по контрольной работе}%
-    \gdef\stp@vidtext{отчёт по контрольной работе}%
-    \gdef\stp@vidvin{отчёт по контрольной работе}\stp@title@lab
-  \else\ifx\stp@vid\stp@l \gdef\stp@vidtext{отчёт по лабораторной работе}%
-    \gdef\stp@vidvin{отчёт по лабораторной работе}\stp@title@lab
+  \def\stp@l{лабораторная}\def\stp@p{практическая}\def\stp@c{контрольная}\def\stp@k{курсовая}%
+  \ifx\stp@vid\stp@l \gdef\stp@vidtext{отчёт по лабораторной работе}%
+    \gdef\stp@vidvin{отчёт по лабораторной работе}\def\stp@worktype{лабораторной}\stp@title@lab
+  \else\ifx\stp@vid\stp@p \gdef\stp@vidtext{отчёт по практической работе}%
+    \gdef\stp@vidvin{отчёт по практической работе}\def\stp@worktype{практической}\stp@title@lab
+  \else\ifx\stp@vid\stp@c \gdef\stp@vidtext{отчёт по контрольной работе}%
+    \gdef\stp@vidvin{отчёт по контрольной работе}\def\stp@worktype{контрольной}\stp@title@lab
   \else\ifx\stp@vid\stp@k \gdef\stp@vidtext{курсовая работа}%
     \gdef\stp@vidvin{курсовую работу}\stp@title@kurs
   \else\ClassError{stp}{Неизвестный вид работы: \stp@vid}%
